@@ -105,14 +105,36 @@ pixi run test  # 25 tests pass
 
 ---
 
-## Phase 3 – Neutron data entry (interactive plots via snapwrap/mantid)
+## Phase 3 – Neutron data entry (interactive plots via snapwrap/mantid) 🔄
 | Deliverable | Notes |
 |-------------|-------|
-| `neutronote/services/data.py` | Uses mantid/snapwrap to load & reduce data |
-| `/entries/new/data` form | Input: run number, optional reduction params |
-| Server returns x/y (2-D) or x/y/z (3-D) JSON | Reduced workspace → arrays |
+| `neutronote/services/data.py` | ✅ Discover reduced data by state/run |
+| Reduced data discovery | ✅ Find files in `/SNS/SNAP/<IPTS>/shared/SNAPRed/` |
+| Metadata extraction | ✅ Title, duration, start_time from reduced NeXus |
+| Run browser modal | ✅ Sortable/filterable table with title, duration, start |
+| `/entries/api/states` | ✅ List available instrument states |
+| `/entries/api/states/<id>/runs` | ✅ List runs with metadata |
+| **TODO: Load data with mantid** | `LoadNexus` to get workspace |
+| **TODO: Extract plot data** | Convert workspace to x/y arrays |
 | Plotly.js integration | Render interactive line / heatmap / surface |
 | Store plot config JSON in `Entry.body` | Re-render on view |
+
+### Known Issues
+- **Run browser modal is laggy** when loading metadata for many runs (reads each file with h5py). Consider caching or lazy-loading metadata.
+
+### Next Steps: Mantid Integration
+```python
+# In neutronote/services/data.py
+from mantid.simpleapi import *
+
+# Load reduced data
+ws = LoadNexus(Filename="<full path to reduced file>", 
+               OutputWorkspace="<meaningful name>")
+
+# Extract x/y data for plotting
+x = ws.readX(0)  # or extractX()
+y = ws.readY(0)
+```
 
 **Checkpoint 3**
 ```bash

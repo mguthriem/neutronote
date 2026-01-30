@@ -53,7 +53,7 @@
             <button class="tab active" data-type="text">Text</button>
             <button class="tab" data-type="header" {% if not config.is_configured %}disabled title="Configure IPTS first"{% endif %}>Header</button>
             <button class="tab" data-type="image">Image</button>
-            <button class="tab" data-type="data" disabled title="Coming soon">Data</button>
+            <button class="tab" data-type="data" {% if not config.is_configured %}disabled title="Configure IPTS first"{% endif %}>Data</button>
             <button class="tab" data-type="code" disabled title="Coming soon">Code</button>
         </div>
 
@@ -98,14 +98,110 @@
             <button type="submit" class="btn btn-primary">Upload Image</button>
         </form>
 
-        <!-- Placeholder forms for other types (to be implemented) -->
-        <form id="data-form" class="entry-form" style="display:none;">
-            <p class="placeholder-text">Data entry form coming in Phase 3...</p>
+        <!-- Reduced Data entry form -->
+        <form id="data-form" class="entry-form">
+            {% if config.is_configured %}
+            <div class="form-group">
+                <label for="state-select">Instrument State</label>
+                <select id="state-select" name="state_id" required>
+                    <option value="">Loading states...</option>
+                </select>
+                <small class="form-hint">Select the instrument configuration state</small>
+            </div>
+            
+            <div id="selected-run-info" class="selected-run-info" style="display: none;">
+                <div class="selected-run-header">
+                    <strong>Selected Run</strong>
+                    <button type="button" class="btn-clear-selection" onclick="clearRunSelection()">✕</button>
+                </div>
+                <div class="selected-run-details">
+                    <span class="selected-run-number" id="selected-run-number"></span>
+                    <span class="selected-run-title" id="selected-run-title"></span>
+                </div>
+                <div class="selected-run-meta">
+                    <span id="selected-run-duration"></span> · <span id="selected-run-timestamp"></span>
+                </div>
+            </div>
+            
+            <button type="button" class="btn btn-secondary" id="browse-runs-btn" onclick="openRunBrowser()">
+                📂 Browse Reduced Runs
+            </button>
+            
+            <input type="hidden" id="selected-run" name="run_number" value="">
+            <input type="hidden" id="selected-state" name="state_id" value="">
+            
+            <button type="submit" class="btn btn-primary" id="data-submit-btn" disabled>
+                View Reduced Data
+            </button>
+            {% else %}
+            <p class="placeholder-text">Please configure the notebook IPTS first.</p>
+            {% endif %}
         </form>
+        
         <form id="code-form" class="entry-form" style="display:none;">
             <p class="placeholder-text">Code entry form coming in Phase 4...</p>
         </form>
     </aside>
+
+<!-- Run Browser Modal -->
+<div id="run-browser-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-content modal-large">
+        <div class="modal-header">
+            <h3>📂 Browse Reduced Runs</h3>
+            <button type="button" class="btn-close" onclick="closeRunBrowser()">×</button>
+        </div>
+        
+        <div class="modal-filters">
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label for="filter-search">Search Title</label>
+                    <input type="text" id="filter-search" placeholder="Filter by title...">
+                </div>
+                <div class="filter-group">
+                    <label for="filter-duration">Min Duration</label>
+                    <select id="filter-duration">
+                        <option value="0">All runs</option>
+                        <option value="60">≥ 1 minute</option>
+                        <option value="300">≥ 5 minutes</option>
+                        <option value="600">≥ 10 minutes</option>
+                        <option value="1800">≥ 30 minutes</option>
+                        <option value="3600">≥ 1 hour</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filter-run">Run Number</label>
+                    <input type="text" id="filter-run" placeholder="e.g., 65890">
+                </div>
+            </div>
+            <div class="filter-summary">
+                Showing <span id="filter-count">0</span> of <span id="total-count">0</span> runs
+            </div>
+        </div>
+        
+        <div class="modal-body">
+            <table class="run-table" id="run-table">
+                <thead>
+                    <tr>
+                        <th class="sortable" data-sort="run_number">Run # <span class="sort-indicator"></span></th>
+                        <th class="sortable" data-sort="title">Title <span class="sort-indicator"></span></th>
+                        <th class="sortable" data-sort="duration">Duration <span class="sort-indicator"></span></th>
+                        <th class="sortable" data-sort="start_time">Start Time <span class="sort-indicator"></span></th>
+                    </tr>
+                </thead>
+                <tbody id="run-table-body">
+                    <tr><td colspan="4" class="loading-row">Loading runs...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeRunBrowser()">Cancel</button>
+            <button type="button" class="btn btn-primary" id="select-run-btn" disabled onclick="confirmRunSelection()">
+                Select Run
+            </button>
+        </div>
+    </div>
+</div>
 
     <!-- RIGHT PANEL: Timeline -->
     <section class="timeline-panel">
@@ -154,6 +250,14 @@ function switchToTab(type) {
     const form = document.getElementById(type + '-form');
     form.style.display = 'block';
     form.classList.add('active');
+    
+    // Load states when switching to data tab (use direct DOM lookup since stateSelect may not be defined yet)
+    if (type === 'data') {
+        const stateSelectEl = document.getElementById('state-select');
+        if (stateSelectEl && stateSelectEl.options.length <= 1 && typeof loadStates === 'function') {
+            loadStates();
+        }
+    }
 }
 
 // Tab switching for entry types
@@ -174,5 +278,323 @@ if (tabParam) {
 // Auto-scroll timeline to bottom (newest entries)
 const timeline = document.getElementById('timeline');
 timeline.scrollTop = timeline.scrollHeight;
+
+// =============================================================================
+// Reduced Data Selection Logic
+// =============================================================================
+
+const stateSelect = document.getElementById('state-select');
+const selectedRunInfo = document.getElementById('selected-run-info');
+const selectedRunNumber = document.getElementById('selected-run-number');
+const selectedRunTimestamp = document.getElementById('selected-run-timestamp');
+const selectedRunInput = document.getElementById('selected-run');
+const selectedStateInput = document.getElementById('selected-state');
+const dataSubmitBtn = document.getElementById('data-submit-btn');
+
+let allRuns = [];  // Cache of runs for current state
+let selectedRun = null;
+
+// Load states when data tab is clicked
+function loadStates() {
+    if (!stateSelect) return;
+    
+    stateSelect.innerHTML = '<option value="">Loading...</option>';
+    
+    fetch('/entries/api/states')
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                stateSelect.innerHTML = `<option value="">Error: ${data.error}</option>`;
+                return;
+            }
+            
+            if (!data.states || data.states.length === 0) {
+                stateSelect.innerHTML = '<option value="">No reduced data found</option>';
+                return;
+            }
+            
+            stateSelect.innerHTML = '<option value="">Select a state...</option>';
+            data.states.forEach(stateId => {
+                const opt = document.createElement('option');
+                opt.value = stateId;
+                // Show abbreviated state ID for display
+                opt.textContent = `State: ${stateId.substring(0, 8)}...`;
+                stateSelect.appendChild(opt);
+            });
+            
+            // Auto-select if only one state
+            if (data.states.length === 1) {
+                stateSelect.value = data.states[0];
+                selectedStateInput.value = data.states[0];
+            }
+        })
+        .catch(err => {
+            console.error('Failed to load states:', err);
+            stateSelect.innerHTML = '<option value="">Failed to load states</option>';
+        });
+}
+
+// State selection change - just update the hidden input, runs are loaded in modal
+if (stateSelect) {
+    stateSelect.addEventListener('change', function() {
+        selectedRun = null;
+        selectedRunInfo.style.display = 'none';
+        dataSubmitBtn.disabled = true;
+        selectedRunInput.value = '';
+        selectedStateInput.value = this.value;
+        allRuns = [];  // Clear cached runs so modal reloads them
+    });
+}
+
+// Load states when switching to data tab
+document.querySelector('.tab[data-type="data"]')?.addEventListener('click', function() {
+    if (!this.disabled && stateSelect && stateSelect.options.length <= 1) {
+        loadStates();
+    }
+});
+
+// Load states on initial page load if data tab is active
+const dataTab = document.querySelector('.tab[data-type="data"]');
+if (dataTab && dataTab.classList.contains('active') && stateSelect && stateSelect.options.length <= 1) {
+    loadStates();
+}
+
+// =============================================================================
+// Run Browser Modal Logic
+// =============================================================================
+
+const runBrowserModal = document.getElementById('run-browser-modal');
+const runTableBody = document.getElementById('run-table-body');
+const filterSearch = document.getElementById('filter-search');
+const filterDuration = document.getElementById('filter-duration');
+const filterRun = document.getElementById('filter-run');
+const filterCount = document.getElementById('filter-count');
+const totalCount = document.getElementById('total-count');
+const selectRunBtn = document.getElementById('select-run-btn');
+
+let browserRuns = [];  // All runs loaded in the browser
+let filteredRuns = [];  // Current filtered view
+let browserSelectedRun = null;  // Currently selected run in modal
+let sortColumn = 'run_number';
+let sortDirection = 'asc';
+
+// Open the run browser modal
+function openRunBrowser() {
+    if (!stateSelect || !stateSelect.value) {
+        alert('Please select an instrument state first');
+        return;
+    }
+    
+    runBrowserModal.style.display = 'flex';
+    browserSelectedRun = null;
+    selectRunBtn.disabled = true;
+    
+    // Reset filters
+    filterSearch.value = '';
+    filterDuration.value = '0';
+    filterRun.value = '';
+    
+    // Load runs if not already loaded
+    if (allRuns.length > 0) {
+        browserRuns = allRuns;
+        applyFiltersAndSort();
+    } else {
+        loadRunsForBrowser();
+    }
+}
+
+// Close the run browser modal
+function closeRunBrowser() {
+    runBrowserModal.style.display = 'none';
+}
+
+// Load runs specifically for the browser
+function loadRunsForBrowser() {
+    const stateId = stateSelect.value;
+    runTableBody.innerHTML = '<tr><td colspan="4" class="loading-row">Loading runs...</td></tr>';
+    
+    fetch(`/entries/api/states/${stateId}/runs`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                runTableBody.innerHTML = `<tr><td colspan="4" class="loading-row">Error: ${data.error}</td></tr>`;
+                return;
+            }
+            browserRuns = data.runs;
+            allRuns = data.runs;  // Update the cache
+            applyFiltersAndSort();
+        })
+        .catch(err => {
+            runTableBody.innerHTML = '<tr><td colspan="4" class="loading-row">Failed to load runs</td></tr>';
+            console.error('Failed to load runs:', err);
+        });
+}
+
+// Apply current filters and sorting
+function applyFiltersAndSort() {
+    const searchQuery = filterSearch.value.toLowerCase().trim();
+    const minDuration = parseInt(filterDuration.value) || 0;
+    const runQuery = filterRun.value.trim();
+    
+    // Filter
+    filteredRuns = browserRuns.filter(run => {
+        // Title search
+        if (searchQuery && !(run.title || '').toLowerCase().includes(searchQuery)) {
+            return false;
+        }
+        // Duration filter
+        if (minDuration > 0 && (run.duration || 0) < minDuration) {
+            return false;
+        }
+        // Run number filter
+        if (runQuery && !String(run.run_number).includes(runQuery)) {
+            return false;
+        }
+        return true;
+    });
+    
+    // Sort
+    filteredRuns.sort((a, b) => {
+        let aVal = a[sortColumn];
+        let bVal = b[sortColumn];
+        
+        // Handle null/undefined
+        if (aVal == null) aVal = sortColumn === 'title' ? '' : 0;
+        if (bVal == null) bVal = sortColumn === 'title' ? '' : 0;
+        
+        // String comparison for title
+        if (sortColumn === 'title') {
+            aVal = aVal.toLowerCase();
+            bVal = bVal.toLowerCase();
+        }
+        
+        let cmp = 0;
+        if (aVal < bVal) cmp = -1;
+        else if (aVal > bVal) cmp = 1;
+        
+        return sortDirection === 'asc' ? cmp : -cmp;
+    });
+    
+    // Update counts
+    totalCount.textContent = browserRuns.length;
+    filterCount.textContent = filteredRuns.length;
+    
+    // Render table
+    renderRunTable();
+}
+
+// Render the run table
+function renderRunTable() {
+    if (filteredRuns.length === 0) {
+        runTableBody.innerHTML = '<tr><td colspan="4" class="loading-row">No runs match the current filters</td></tr>';
+        return;
+    }
+    
+    runTableBody.innerHTML = '';
+    filteredRuns.forEach(run => {
+        const row = document.createElement('tr');
+        row.className = 'run-row';
+        if (browserSelectedRun && browserSelectedRun.run_number === run.run_number) {
+            row.classList.add('selected');
+        }
+        row.innerHTML = `
+            <td class="run-number-cell">${run.run_number}</td>
+            <td class="title-cell" title="${escapeHtml(run.title || 'No title')}">${escapeHtml(run.title || '—')}</td>
+            <td class="duration-cell">${run.duration_display || '—'}</td>
+            <td class="timestamp-cell">${run.start_time_display || run.timestamp_display || '—'}</td>
+        `;
+        row.addEventListener('click', () => selectRunInBrowser(run, row));
+        runTableBody.appendChild(row);
+    });
+    
+    // Update sort indicators
+    document.querySelectorAll('.run-table th').forEach(th => {
+        th.classList.remove('sorted-asc', 'sorted-desc');
+        if (th.dataset.sort === sortColumn) {
+            th.classList.add(sortDirection === 'asc' ? 'sorted-asc' : 'sorted-desc');
+        }
+    });
+}
+
+// Select a run in the browser
+function selectRunInBrowser(run, row) {
+    // Clear previous selection
+    document.querySelectorAll('.run-row.selected').forEach(r => r.classList.remove('selected'));
+    
+    // Mark new selection
+    row.classList.add('selected');
+    browserSelectedRun = run;
+    selectRunBtn.disabled = false;
+}
+
+// Confirm run selection from browser
+function confirmRunSelection() {
+    if (!browserSelectedRun) return;
+    
+    selectedRun = browserSelectedRun;
+    selectedRunInput.value = browserSelectedRun.run_number;
+    
+    // Update selection display
+    selectedRunNumber.textContent = browserSelectedRun.run_number;
+    document.getElementById('selected-run-title').textContent = browserSelectedRun.title || '—';
+    document.getElementById('selected-run-duration').textContent = browserSelectedRun.duration_display || '—';
+    document.getElementById('selected-run-timestamp').textContent = browserSelectedRun.start_time_display || browserSelectedRun.timestamp_display || '—';
+    selectedRunInfo.style.display = 'block';
+    
+    // Enable submit button
+    dataSubmitBtn.disabled = false;
+    
+    closeRunBrowser();
+}
+
+// Clear run selection
+function clearRunSelection() {
+    selectedRun = null;
+    browserSelectedRun = null;
+    selectedRunInput.value = '';
+    selectedRunInfo.style.display = 'none';
+    dataSubmitBtn.disabled = true;
+}
+
+// Escape HTML to prevent XSS
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Set up filter event listeners
+if (filterSearch) filterSearch.addEventListener('input', applyFiltersAndSort);
+if (filterDuration) filterDuration.addEventListener('change', applyFiltersAndSort);
+if (filterRun) filterRun.addEventListener('input', applyFiltersAndSort);
+
+// Set up sort click handlers
+document.querySelectorAll('.run-table th.sortable').forEach(th => {
+    th.addEventListener('click', function() {
+        const newSort = this.dataset.sort;
+        if (newSort === sortColumn) {
+            sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            sortColumn = newSort;
+            sortDirection = 'asc';
+        }
+        applyFiltersAndSort();
+    });
+});
+
+// Close modal on escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && runBrowserModal.style.display === 'flex') {
+        closeRunBrowser();
+    }
+});
+
+// Close modal on backdrop click
+runBrowserModal?.addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeRunBrowser();
+    }
+});
 </script>
 {% endblock %}

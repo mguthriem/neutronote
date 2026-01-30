@@ -10,6 +10,7 @@ from flask import (
     Blueprint,
     current_app,
     flash,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -21,6 +22,7 @@ from werkzeug.utils import secure_filename
 from ..app import allowed_file
 from ..models import Entry, NotebookConfig, db
 from ..services.metadata import get_run_metadata
+from ..services.data import discover_state_ids, discover_reduced_runs
 
 bp = Blueprint("entries", __name__, url_prefix="/entries")
 
@@ -205,3 +207,96 @@ def edit(entry_id):
 
     # GET: show edit form
     return render_template("entries/edit.html", entry=entry)
+
+
+# =============================================================================
+# API endpoints for reduced data discovery
+# =============================================================================
+
+
+@bp.route("/api/states")
+def api_get_states():
+    """
+    API: Get available state IDs for the current notebook's IPTS.
+
+    Returns JSON: {"states": ["abc123...", "def456..."], "ipts": "IPTS-12345"}
+    """
+    config = NotebookConfig.get_config()
+
+    if not config.is_configured:
+        return jsonify({"error": "Notebook IPTS not configured", "states": []}), 400
+
+    state_ids = discover_state_ids(config.ipts)
+
+    return jsonify({
+        "ipts": config.ipts,
+        "states": state_ids,
+        "count": len(state_ids),
+    })
+
+
+@bp.route("/api/states/<state_id>/runs")
+def api_get_runs(state_id):
+    """
+    API: Get reduced runs for a specific state ID.
+
+    Returns JSON with run list, supports optional filtering.
+    Query params:
+        - search: filter runs containing this substring
+        - limit: max number of results (default: all)
+    """
+    config = NotebookConfig.get_config()
+
+    if not config.is_configured:
+        return jsonify({"error": "Notebook IPTS not configured", "runs": []}), 400
+
+    # Get all reduced runs for this state
+    runs = discover_reduced_runs(config.ipts, state_id, lite=True, latest_only=True)
+
+    # Optional filtering
+    search = request.args.get("search", "").strip()
+    if search:
+        try:
+            search_num = int(search)
+            runs = [r for r in runs if search in str(r.run_number)]
+        except ValueError:
+            pass  # Non-numeric search, ignore for now
+
+    # Optional limit
+    limit = request.args.get("limit", type=int)
+    if limit and limit > 0:
+        runs = runs[:limit]
+
+    return jsonify({
+        "state_id": state_id,
+        "ipts": config.ipts,
+        "runs": [r.to_dict() for r in runs],
+        "count": len(runs),
+    })
+
+
+@bp.route("/api/runs/<int:run_number>/info")
+def api_get_run_info(run_number):
+    """
+    API: Get detailed info for a specific run number.
+
+    Looks up the run in all states to find reduction info.
+    """
+    config = NotebookConfig.get_config()
+
+    if not config.is_configured:
+        return jsonify({"error": "Notebook IPTS not configured"}), 400
+
+    state_id = request.args.get("state_id", "").strip()
+
+    if not state_id:
+        return jsonify({"error": "state_id parameter required"}), 400
+
+    runs = discover_reduced_runs(config.ipts, state_id, lite=True, latest_only=True)
+    matching = [r for r in runs if r.run_number == run_number]
+
+    if not matching:
+        return jsonify({"error": f"Run {run_number} not found in state {state_id}"}), 404
+
+    return jsonify(matching[0].to_dict())
+
