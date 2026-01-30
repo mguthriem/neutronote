@@ -1,4 +1,4 @@
-# Copilot instructions – multiNote
+# Copilot instructions – neutroNote
 
 > E-lab notebook web app for time-sequenced experiment entries (Flask + SQLite + mantid/snapwrap).
 
@@ -7,7 +7,7 @@
 | Action | Command |
 |--------|---------|
 | Install (Pixi) | `pixi install` |
-| Run dev server | `pixi run dev` (or `flask --app multinote.app run --debug`) |
+| Run dev server | `pixi run dev` (or `flask --app neutronote.app run --debug`) |
 | Run tests | `pixi run test` (or `pytest -q tests/`) |
 | Lint | `pixi run lint` |
 | Format | `pixi run fmt` |
@@ -15,23 +15,23 @@
 ## Project layout
 
 ```
-multinote/
+neutronote/
   app.py            # create_app() factory, blueprints registered here
   models.py         # SQLAlchemy models: Entry, Tag (User added later)
   routes/           # Blueprints (entries, auth, api…)
   services/         # metadata.py, data.py – wrappers around snapwrap/mantid
   templates/        # Jinja2 HTML (base.html, entries/, auth/)
   static/           # CSS, JS, images
-tests/              # pytest suite (mirrors multinote/ structure)
+tests/              # pytest suite (mirrors neutronote/ structure)
 docs/PLAN.md        # Phased development roadmap with checkpoints
 pyproject.toml      # Pixi + pip config, tasks, tool settings
 ```
 
 ## Architecture at a glance
 
-- **Flask app factory** in `multinote/app.py` – loads config, registers
+- **Flask app factory** in `neutronote/app.py` – loads config, registers
   extensions (Flask-SQLAlchemy) and blueprints.
-- **SQLite** database at `instance/multinote.db`; models in `models.py`.
+- **SQLite** database at `instance/neutronote.db`; models in `models.py`.
 - **Entry types** (text, header, neutron-data, code) share a single `Entry`
   model with a `type` discriminator; rendering handled in Jinja partials.
 - **Data backend**: `snapwrap` + `mantid` (server-side) for loading/reducing
@@ -57,7 +57,7 @@ The main interface uses a **split-view design**:
 
 ## Conventions
 
-- **Blueprints**: one module per concern under `multinote/routes/`; register in
+- **Blueprints**: one module per concern under `neutronote/routes/`; register in
   `app.py`.
 - **Templates**: extend `templates/base.html`; entry-type partials live in
   `templates/entries/_<type>.html`.
@@ -101,7 +101,7 @@ from snapwrap.spectralTools import some_function
 from snapwrap.SEEMeta import SomeClass
 ```
 
-Keep all mantid/snapwrap imports isolated inside `multinote/services/` so the
+Keep all mantid/snapwrap imports isolated inside `neutronote/services/` so the
 app can run (with stubs) in environments without mantid installed.
 
 ## Tips for AI agents

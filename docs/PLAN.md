@@ -1,4 +1,4 @@
-# Development Plan – multiNote E-Lab Notebook
+# Development Plan – neutroNote E-Lab Notebook
 
 Below is a phased roadmap. Each phase ends with a **checkpoint** you can run to confirm everything works before moving on.
 
@@ -10,7 +10,7 @@ Below is a phased roadmap. Each phase ends with a **checkpoint** you can run to 
 | `pyproject.toml` | Pixi + pip installable, dev deps |
 | `.gitignore` | Python, Flask, Pixi, IDE |
 | `README.md` | Quick-start instructions |
-| Minimal Flask app (`multinote/app.py`) | Returns "Hello, multiNote" |
+| Minimal Flask app (`neutronote/app.py`) | Returns "Hello, neutroNote" |
 | `tests/test_app.py` | One smoke test |
 
 **Checkpoint 0**
@@ -24,7 +24,7 @@ pixi run test                  # 1 test passes
 ## Phase 1 – Database models & simple text entries
 | Deliverable | Notes |
 |-------------|-------|
-| SQLite via Flask-SQLAlchemy | `instance/multinote.db` |
+| SQLite via Flask-SQLAlchemy | `instance/neutronote.db` |
 | Models: `Entry`, `Tag` | Entry has `type`, `body`, `created_at` (no user yet) |
 | **Split-view layout** | Left: entry creation panel; Right: scrollable timeline |
 | Entry-type selector | Buttons/tabs to choose Text, Header, Data, Code |
@@ -36,7 +36,7 @@ pixi run test                  # 1 test passes
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  multiNote                                        [User ▾]  │
+│  neutroNote                                        [User ▾]  │
 ├────────────────────────┬────────────────────────────────────┤
 │  CREATE ENTRY          │  TIMELINE (scrollable)             │
 │  ───────────────────   │  ────────────────────────────────  │
@@ -70,7 +70,7 @@ pixi run test   # add integration tests for create/list
 | Deliverable | Notes |
 |-------------|-------|
 | Add `h5py` dependency | Read NeXus files directly |
-| `multinote/services/metadata.py` | `RunMetadata` dataclass + file lookup |
+| `neutronote/services/metadata.py` | `RunMetadata` dataclass + file lookup |
 | `/entries/create/header` route | Input: run number |
 | Auto-populate title, times, counts, file size | From native NeXus file |
 | Render header card in timeline | Styled with green accent, non-editable |
@@ -108,7 +108,7 @@ pixi run test  # 25 tests pass
 ## Phase 3 – Neutron data entry (interactive plots via snapwrap/mantid)
 | Deliverable | Notes |
 |-------------|-------|
-| `multinote/services/data.py` | Uses mantid/snapwrap to load & reduce data |
+| `neutronote/services/data.py` | Uses mantid/snapwrap to load & reduce data |
 | `/entries/new/data` form | Input: run number, optional reduction params |
 | Server returns x/y (2-D) or x/y/z (3-D) JSON | Reduced workspace → arrays |
 | Plotly.js integration | Render interactive line / heatmap / surface |

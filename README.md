@@ -1,4 +1,4 @@
-# multiNote – E-Lab Notebook
+# neutroNote – E-Lab Notebook
 
 A web-based electronic lab notebook that helps experimental teams create time-sequenced entries during neutron-science experiments at SNAP.
 
@@ -38,7 +38,7 @@ pixi run dev            # start Flask dev server at http://127.0.0.1:5000
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-flask --app multinote.app run --debug
+flask --app neutronote.app run --debug
 ```
 
 ## Running tests
@@ -52,7 +52,7 @@ pytest -q tests/
 ## Project layout
 
 ```
-multinote/
+neutronote/
 ├── app.py              # Flask application factory
 ├── models.py           # SQLAlchemy models (Entry, Tag, User…)
 ├── routes/             # Blueprints (entries, auth, api)

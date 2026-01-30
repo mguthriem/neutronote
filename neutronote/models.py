@@ -1,5 +1,5 @@
 """
-SQLAlchemy models for multiNote.
+SQLAlchemy models for neutroNote.
 """
 
 from datetime import datetime, timezone

@@ -1,5 +1,5 @@
 [project]
-name = "multinote"
+name = "neutronote"
 version = "0.1.0"
 description = "Web-based e-lab notebook for time-sequenced experiment entries"
 readme = "README.md"
@@ -28,7 +28,7 @@ dev = [
 ]
 
 [project.scripts]
-multinote = "multinote.app:main"
+neutronote = "neutronote.app:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -36,7 +36,7 @@ build-backend = "hatchling.build"
 
 # ---------- Pixi configuration ----------
 [tool.pixi.project]
-name = "multinote"
+name = "neutronote"
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
 
@@ -66,10 +66,10 @@ default = { features = ["dev"], solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
 
 [tool.pixi.tasks]
-dev = "flask --app multinote.app run --debug"
+dev = "flask --app neutronote.app run --debug"
 test = "pytest -q tests/"
-lint = "ruff check multinote tests"
-fmt = "black multinote tests"
+lint = "ruff check neutronote tests"
+fmt = "black neutronote tests"
 
 # ---------- Tool configs ----------
 [tool.ruff]

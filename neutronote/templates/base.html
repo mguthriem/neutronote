@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}multiNote{% endblock %}</title>
+    <title>{% block title %}neutroNote{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <!-- KaTeX for LaTeX math rendering -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
@@ -11,7 +11,7 @@
 </head>
 <body>
     <header class="app-header">
-        <h1 class="app-title">🧪 multiNote</h1>
+        <h1 class="app-title">🧪 neutroNote</h1>
         <nav class="app-nav">
             <a href="{{ url_for('entries.index') }}">Notebook</a>
             <!-- Future: tags, search, user menu -->

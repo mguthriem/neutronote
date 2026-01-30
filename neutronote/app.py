@@ -1,5 +1,5 @@
 """
-multiNote – Flask application factory.
+neutroNote – Flask application factory.
 """
 
 import os
@@ -29,7 +29,7 @@ def create_app(test_config=None):
     # Default configuration
     app.config.from_mapping(
         SECRET_KEY="dev-secret-change-in-production",
-        SQLALCHEMY_DATABASE_URI=f"sqlite:///{os.path.join(app.instance_path, 'multinote.db')}",
+        SQLALCHEMY_DATABASE_URI=f"sqlite:///{os.path.join(app.instance_path, 'neutronote.db')}",
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         UPLOAD_FOLDER=upload_folder,
         MAX_CONTENT_LENGTH=16 * 1024 * 1024,  # 16 MB max upload
@@ -89,7 +89,7 @@ def create_app(test_config=None):
 
 
 def main():
-    """CLI entry-point for `multinote` command."""
+    """CLI entry-point for `neutronote` command."""
     app = create_app()
     app.run(debug=True)
 

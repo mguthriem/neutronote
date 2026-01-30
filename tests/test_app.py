@@ -1,5 +1,5 @@
 """
-Tests for multiNote application.
+Tests for neutroNote application.
 """
 
 import os
@@ -7,8 +7,8 @@ import tempfile
 
 import pytest
 
-from multinote.app import create_app
-from multinote.models import Entry, db
+from neutronote.app import create_app
+from neutronote.models import Entry, db
 
 
 @pytest.fixture
@@ -54,7 +54,7 @@ class TestIndex:
         """GET /entries should return the split-view page."""
         response = client.get("/entries/")
         assert response.status_code == 200
-        assert b"multiNote" in response.data
+        assert b"neutroNote" in response.data
         assert b"Create Entry" in response.data
         assert b"Timeline" in response.data
 
@@ -409,7 +409,7 @@ class TestMetadataService:
 
     def test_run_metadata_dataclass(self):
         """RunMetadata should have expected properties."""
-        from multinote.services.metadata import RunMetadata
+        from neutronote.services.metadata import RunMetadata
 
         meta = RunMetadata(
             run_number=12345,
@@ -426,7 +426,7 @@ class TestMetadataService:
 
     def test_run_metadata_to_dict(self):
         """RunMetadata.to_dict() should return expected keys."""
-        from multinote.services.metadata import RunMetadata
+        from neutronote.services.metadata import RunMetadata
 
         meta = RunMetadata(run_number=12345, title="Test")
         result = meta.to_dict()
@@ -438,7 +438,7 @@ class TestMetadataService:
 
     def test_get_run_metadata_missing_file(self):
         """get_run_metadata should return error for nonexistent run."""
-        from multinote.services.metadata import get_run_metadata
+        from neutronote.services.metadata import get_run_metadata
 
         meta = get_run_metadata(99999999)
         assert meta.error is not None
