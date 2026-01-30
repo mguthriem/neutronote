@@ -120,9 +120,17 @@ class RunMetadata:
         }
 
 
-def find_nexus_file(run_number: int) -> Path | None:
+def find_nexus_file(run_number: int, ipts: str | None = None) -> Path | None:
     """
     Locate the NeXus file for a given run number.
+
+    Parameters
+    ----------
+    run_number : int
+        The SNAP run number.
+    ipts : str, optional
+        The IPTS folder name (e.g., "IPTS-12345"). If provided, searches
+        only that IPTS folder first for faster lookup.
 
     Search order (prefers native files for complete metadata):
     1. Full NeXus: /SNS/SNAP/<IPTS>/nexus/SNAP_<run>.nxs.h5
@@ -130,6 +138,21 @@ def find_nexus_file(run_number: int) -> Path | None:
 
     Uses finddata CLI if available, otherwise scans known IPTS folders.
     """
+    base = Path("/SNS/SNAP")
+
+    # If IPTS is specified, check that folder first
+    if ipts:
+        ipts_dir = base / ipts
+        if ipts_dir.exists():
+            # Try native first (has complete metadata)
+            native_path = ipts_dir / "nexus" / f"SNAP_{run_number}.nxs.h5"
+            if native_path.exists():
+                return native_path
+            # Then lite as fallback
+            lite_path = ipts_dir / "shared" / "lite" / f"SNAP_{run_number}.lite.nxs.h5"
+            if lite_path.exists():
+                return lite_path
+
     # Try using finddata CLI (same approach as stateFromRun.py)
     try:
         from finddata import cli
@@ -142,7 +165,6 @@ def find_nexus_file(run_number: int) -> Path | None:
         pass
 
     # Fallback: scan common IPTS locations
-    base = Path("/SNS/SNAP")
     if not base.exists():
         return None
 
@@ -241,7 +263,7 @@ def get_run_metadata_from_file(file_path: str | Path) -> RunMetadata:
         return RunMetadata(run_number=run_number, error=f"Error reading file: {e}")
 
 
-def get_run_metadata(run_number: int) -> RunMetadata:
+def get_run_metadata(run_number: int, ipts: str | None = None) -> RunMetadata:
     """
     Retrieve metadata for a given run number.
 
@@ -251,15 +273,23 @@ def get_run_metadata(run_number: int) -> RunMetadata:
     ----------
     run_number : int
         The SNAP run number.
+    ipts : str, optional
+        The IPTS folder name (e.g., "IPTS-12345"). If provided, searches
+        that IPTS folder first for faster lookup.
 
     Returns
     -------
     RunMetadata
         Metadata object with run information or error details.
     """
-    file_path = find_nexus_file(run_number)
+    file_path = find_nexus_file(run_number, ipts=ipts)
 
     if file_path is None:
+        if ipts:
+            return RunMetadata(
+                run_number=run_number,
+                error=f"Could not locate file for run {run_number} in {ipts}",
+            )
         return RunMetadata(
             run_number=run_number, error=f"Could not locate file for run {run_number}"
         )

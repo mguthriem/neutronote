@@ -8,7 +8,7 @@ import tempfile
 import pytest
 
 from neutronote.app import create_app
-from neutronote.models import Entry, db
+from neutronote.models import Entry, NotebookConfig, db
 
 
 @pytest.fixture
@@ -32,6 +32,16 @@ def app():
 @pytest.fixture
 def client(app):
     """Test client for the app."""
+    return app.test_client()
+
+
+@pytest.fixture
+def configured_client(app):
+    """Test client with IPTS already configured."""
+    with app.app_context():
+        config = NotebookConfig.get_config()
+        config.ipts = "IPTS-12345"
+        db.session.commit()
     return app.test_client()
 
 
@@ -239,18 +249,44 @@ class TestEditEntry:
 class TestHeaderEntries:
     """Tests for run header entries."""
 
-    def test_header_tab_enabled(self, client):
-        """Header tab should be enabled in the create form."""
+    def test_header_tab_disabled_without_ipts(self, client):
+        """Header tab should be disabled when IPTS is not configured."""
         response = client.get("/entries/")
+        html = response.data.decode()
+        # Header button should exist but be disabled
+        assert 'data-type="header"' in html
+        assert 'Configure IPTS first' in html
+
+    def test_header_tab_enabled_with_ipts(self, configured_client):
+        """Header tab should be enabled when IPTS is configured."""
+        response = configured_client.get("/entries/")
         html = response.data.decode()
         # Check that the header button exists without the disabled attribute
         assert 'data-type="header"' in html
         # The header form should have a run_number input
         assert 'name="run_number"' in html
+        # Should show the configured IPTS
+        assert 'IPTS-12345' in html
 
-    def test_create_header_entry_invalid_run(self, client, app):
-        """Creating header with invalid run number should handle gracefully."""
+    def test_create_header_requires_ipts_config(self, client, app):
+        """Creating header without IPTS configured should show error."""
         response = client.post(
+            "/entries/create/header",
+            data={"run_number": "12345"},
+            follow_redirects=True,
+        )
+
+        assert response.status_code == 200
+        # Should show error about configuring IPTS
+        assert b"configure" in response.data.lower() or b"IPTS" in response.data
+
+        # No entry should be created
+        with app.app_context():
+            assert Entry.query.filter_by(type=Entry.TYPE_HEADER).count() == 0
+
+    def test_create_header_entry_invalid_run(self, configured_client, app):
+        """Creating header with invalid run number should handle gracefully."""
+        response = configured_client.post(
             "/entries/create/header",
             data={"run_number": "not-a-number"},
             follow_redirects=True,
@@ -263,9 +299,9 @@ class TestHeaderEntries:
         with app.app_context():
             assert Entry.query.filter_by(type=Entry.TYPE_HEADER).count() == 0
 
-    def test_create_header_entry_empty_run(self, client, app):
+    def test_create_header_entry_empty_run(self, configured_client, app):
         """Creating header with empty run number should not create entry."""
-        response = client.post(
+        response = configured_client.post(
             "/entries/create/header",
             data={"run_number": ""},
             follow_redirects=True,
@@ -275,9 +311,9 @@ class TestHeaderEntries:
         with app.app_context():
             assert Entry.query.filter_by(type=Entry.TYPE_HEADER).count() == 0
 
-    def test_create_header_entry_nonexistent_run(self, client, app):
+    def test_create_header_entry_nonexistent_run(self, configured_client, app):
         """Creating header with run that doesn't exist shows error flash message."""
-        response = client.post(
+        response = configured_client.post(
             "/entries/create/header",
             data={"run_number": "99999999"},  # Unlikely to exist
             follow_redirects=True,
@@ -289,7 +325,7 @@ class TestHeaderEntries:
         with app.app_context():
             assert Entry.query.filter_by(type=Entry.TYPE_HEADER).count() == 0
 
-        # Flash message should be shown
+        # Flash message should be shown (either "Could not locate" or the run number)
         assert b"Could not locate" in response.data or b"99999999" in response.data
 
     def test_header_entry_not_editable(self, client, app):

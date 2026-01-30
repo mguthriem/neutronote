@@ -3,6 +3,32 @@
 {% block title %}Notebook – neutroNote{% endblock %}
 
 {% block content %}
+<!-- IPTS Setup Modal -->
+<div class="setup-overlay" id="setup-overlay" {% if config.is_configured %}style="display: none;"{% endif %}>
+    <div class="setup-modal">
+        <div class="setup-header">
+            <h2>📓 Configure Notebook</h2>
+            {% if config.is_configured %}
+            <button type="button" class="btn-close" onclick="document.getElementById('setup-overlay').style.display='none'">×</button>
+            {% endif %}
+        </div>
+        <p>Enter the IPTS number for this experiment notebook. This will be used for all run header lookups.</p>
+        
+        <form action="{{ url_for('entries.setup_notebook') }}" method="post">
+            <div class="form-group">
+                <label for="setup-ipts">IPTS Number <span class="required">*</span></label>
+                <input type="text" id="setup-ipts" name="ipts" placeholder="e.g., IPTS-12345 or 12345" value="{{ config.ipts or '' }}" required {% if not config.is_configured %}autofocus{% endif %}>
+                <small class="form-hint">Enter with or without "IPTS-" prefix.</small>
+            </div>
+            <div class="form-group">
+                <label for="setup-title">Notebook Title (optional)</label>
+                <input type="text" id="setup-title" name="notebook_title" placeholder="e.g., Diamond Anvil Calibration" value="{{ config.title or '' }}">
+            </div>
+            <button type="submit" class="btn btn-primary btn-large">{% if config.is_configured %}Update{% else %}Start Notebook{% endif %}</button>
+        </form>
+    </div>
+</div>
+
 <div class="split-view">
     <!-- LEFT PANEL: Entry Creation -->
     <aside class="create-panel">
@@ -25,7 +51,7 @@
         <!-- Entry type tabs -->
         <div class="entry-type-tabs">
             <button class="tab active" data-type="text">Text</button>
-            <button class="tab" data-type="header">Header</button>
+            <button class="tab" data-type="header" {% if not config.is_configured %}disabled title="Configure IPTS first"{% endif %}>Header</button>
             <button class="tab" data-type="image">Image</button>
             <button class="tab" data-type="data" disabled title="Coming soon">Data</button>
             <button class="tab" data-type="code" disabled title="Coming soon">Code</button>
@@ -46,12 +72,16 @@
 
         <!-- Run Header entry form -->
         <form id="header-form" class="entry-form" action="{{ url_for('entries.create_header') }}" method="post">
+            {% if config.is_configured %}
             <div class="form-group">
                 <label for="run_number">Run Number</label>
                 <input type="number" id="run_number" name="run_number" placeholder="e.g., 67890" required min="1">
-                <small class="form-hint">Enter a SNAP run number to fetch metadata from the NeXus file.</small>
+                <small class="form-hint">Fetch run metadata from {{ config.ipts }}</small>
             </div>
             <button type="submit" class="btn btn-primary">Fetch Run Header</button>
+            {% else %}
+            <p class="placeholder-text">Please configure the notebook IPTS first.</p>
+            {% endif %}
         </form>
 
         <!-- Image upload form -->
@@ -79,6 +109,17 @@
 
     <!-- RIGHT PANEL: Timeline -->
     <section class="timeline-panel">
+        <!-- Notebook IPTS banner -->
+        {% if config.is_configured %}
+        <div class="notebook-info">
+            <span class="ipts-badge">{{ config.ipts }}</span>
+            {% if config.title %}
+            <span class="notebook-title">{{ config.title }}</span>
+            {% endif %}
+            <button type="button" class="btn-settings" onclick="document.getElementById('setup-overlay').style.display='flex'" title="Change IPTS">⚙️</button>
+        </div>
+        {% endif %}
+        
         <h2>Timeline</h2>
         
         <div class="timeline" id="timeline">

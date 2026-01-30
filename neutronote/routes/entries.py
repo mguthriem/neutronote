@@ -19,7 +19,7 @@ from flask import (
 from werkzeug.utils import secure_filename
 
 from ..app import allowed_file
-from ..models import Entry, db
+from ..models import Entry, NotebookConfig, db
 from ..services.metadata import get_run_metadata
 
 bp = Blueprint("entries", __name__, url_prefix="/entries")
@@ -28,8 +28,9 @@ bp = Blueprint("entries", __name__, url_prefix="/entries")
 @bp.route("/")
 def index():
     """Main split-view: entry creation on left, timeline on right."""
+    config = NotebookConfig.get_config()
     entries = Entry.query.order_by(Entry.created_at.asc()).all()
-    return render_template("entries/index.html", entries=entries)
+    return render_template("entries/index.html", entries=entries, config=config)
 
 
 @bp.route("/create/text", methods=["POST"])
@@ -46,9 +47,52 @@ def create_text():
     return redirect(url_for("entries.index"))
 
 
+@bp.route("/setup", methods=["POST"])
+def setup_notebook():
+    """Set or update the notebook IPTS configuration."""
+    ipts_str = request.form.get("ipts", "").strip()
+    notebook_title = request.form.get("notebook_title", "").strip() or None
+
+    if not ipts_str:
+        flash("Please enter an IPTS number.", "error")
+        return redirect(url_for("entries.index"))
+
+    # Normalize IPTS input (accept "IPTS-12345" or just "12345")
+    ipts_str = ipts_str.upper().replace("IPTS-", "").strip()
+    if not ipts_str.isdigit():
+        flash(f"Invalid IPTS format. Use 'IPTS-12345' or '12345'.", "error")
+        return redirect(url_for("entries.index"))
+
+    ipts = f"IPTS-{ipts_str}"
+
+    # Verify the IPTS folder exists
+    from pathlib import Path
+    ipts_path = Path("/SNS/SNAP") / ipts
+    if not ipts_path.exists():
+        flash(f"IPTS folder not found: {ipts_path}", "error")
+        return redirect(url_for("entries.index"))
+
+    # Update the notebook config
+    config = NotebookConfig.get_config()
+    config.ipts = ipts
+    config.title = notebook_title
+    from datetime import datetime, timezone
+    config.updated_at = datetime.now(timezone.utc)
+    db.session.commit()
+
+    flash(f"Notebook configured for {ipts}", "success")
+    return redirect(url_for("entries.index"))
+
+
 @bp.route("/create/header", methods=["POST"])
 def create_header():
     """Create a new run header entry from a run number."""
+    config = NotebookConfig.get_config()
+
+    if not config.is_configured:
+        flash("Please configure the notebook IPTS first.", "error")
+        return redirect(url_for("entries.index", tab="header"))
+
     run_number_str = request.form.get("run_number", "").strip()
 
     if not run_number_str:
@@ -61,8 +105,8 @@ def create_header():
         flash(f"Invalid run number: '{run_number_str}'. Please enter a valid integer.", "error")
         return redirect(url_for("entries.index", tab="header"))
 
-    # Fetch metadata from the NeXus file
-    metadata = get_run_metadata(run_number)
+    # Use the notebook's IPTS for file lookup
+    metadata = get_run_metadata(run_number, ipts=config.ipts)
 
     if metadata.error:
         # Show error in the left panel, don't create an entry

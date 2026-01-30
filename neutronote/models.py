@@ -84,3 +84,32 @@ class Tag(db.Model):
 
     def __repr__(self):
         return f"<Tag #{self.name}>"
+
+
+class NotebookConfig(db.Model):
+    """Notebook-level configuration (singleton per notebook instance)."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    ipts = db.Column(db.String(50), nullable=True)  # e.g., "IPTS-12345"
+    instrument = db.Column(db.String(20), nullable=False, default="SNAP")
+    title = db.Column(db.String(200), nullable=True)  # Optional notebook title
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, nullable=True)
+
+    def __repr__(self):
+        return f"<NotebookConfig {self.ipts or 'unconfigured'}>"
+
+    @classmethod
+    def get_config(cls):
+        """Get the singleton config, creating one if it doesn't exist."""
+        config = cls.query.first()
+        if config is None:
+            config = cls()
+            db.session.add(config)
+            db.session.commit()
+        return config
+
+    @property
+    def is_configured(self):
+        """Return True if IPTS has been set."""
+        return self.ipts is not None and self.ipts.strip() != ""
