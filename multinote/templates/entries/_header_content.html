@@ -1,0 +1,50 @@
+{# Header entry content – renders run metadata in a structured format #}
+{# Expects: meta (dict) parsed from entry.body JSON #}
+<div class="run-header-content">
+    {% if meta.error %}
+        <div class="run-header-error">
+            <span class="error-icon">⚠️</span>
+            <span class="error-message">{{ meta.error }}</span>
+        </div>
+    {% else %}
+        <dl class="run-metadata">
+            <div class="meta-row meta-row-time">
+                <div class="meta-col">
+                    <dt>Start</dt>
+                    <dd>{{ meta.start_time_formatted or meta.start_time or 'N/A' }}</dd>
+                </div>
+                <div class="meta-col">
+                    <dt>End</dt>
+                    <dd>{{ meta.end_time_formatted or meta.end_time or 'N/A' }}</dd>
+                </div>
+            </div>
+            
+            <div class="meta-row meta-row-stats">
+                <div class="meta-col">
+                    <dt>Duration</dt>
+                    <dd>{{ meta.duration_display or (meta.duration|string + ' sec') }}</dd>
+                </div>
+                <div class="meta-col">
+                    <dt>Total Counts</dt>
+                    <dd>{{ "{:,}".format(meta.total_counts|int) if meta.total_counts else 'N/A' }}</dd>
+                </div>
+                <div class="meta-col">
+                    <dt>Count Rate</dt>
+                    <dd>{{ meta.count_rate_display or 'N/A' }}</dd>
+                </div>
+            </div>
+            
+            <div class="meta-row">
+                <dt>File Size</dt>
+                <dd>{{ meta.file_size_display or 'N/A' }}</dd>
+            </div>
+            
+            {% if meta.file_path %}
+            <div class="meta-row meta-row-path">
+                <dt>File Path</dt>
+                <dd class="file-path" title="{{ meta.file_path }}">{{ meta.file_path }}</dd>
+            </div>
+            {% endif %}
+        </dl>
+    {% endif %}
+</div>

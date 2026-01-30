@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block title %}Notebook – multiNote{% endblock %}
+
+{% block content %}
+<div class="split-view">
+    <!-- LEFT PANEL: Entry Creation -->
+    <aside class="create-panel">
+        <h2>Create Entry</h2>
+        
+        <!-- Flash messages (errors, etc.) -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-messages">
+                    {% for category, message in messages %}
+                        <div class="flash-message flash-{{ category }}">
+                            {{ message }}
+                            <button type="button" class="flash-close" onclick="this.parentElement.remove()">×</button>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+        
+        <!-- Entry type tabs -->
+        <div class="entry-type-tabs">
+            <button class="tab active" data-type="text">Text</button>
+            <button class="tab" data-type="header">Header</button>
+            <button class="tab" data-type="image">Image</button>
+            <button class="tab" data-type="data" disabled title="Coming soon">Data</button>
+            <button class="tab" data-type="code" disabled title="Coming soon">Code</button>
+        </div>
+
+        <!-- Text entry form -->
+        <form id="text-form" class="entry-form active" action="{{ url_for('entries.create_text') }}" method="post">
+            <div class="form-group">
+                <label for="title">Title (optional)</label>
+                <input type="text" id="title" name="title" placeholder="Entry title...">
+            </div>
+            <div class="form-group">
+                <label for="body">Content</label>
+                <textarea id="body" name="body" rows="8" placeholder="Write your notes here... (Markdown supported, use $...$ for inline math)" required></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary">Submit Entry</button>
+        </form>
+
+        <!-- Run Header entry form -->
+        <form id="header-form" class="entry-form" action="{{ url_for('entries.create_header') }}" method="post">
+            <div class="form-group">
+                <label for="run_number">Run Number</label>
+                <input type="number" id="run_number" name="run_number" placeholder="e.g., 67890" required min="1">
+                <small class="form-hint">Enter a SNAP run number to fetch metadata from the NeXus file.</small>
+            </div>
+            <button type="submit" class="btn btn-primary">Fetch Run Header</button>
+        </form>
+
+        <!-- Image upload form -->
+        <form id="image-form" class="entry-form" action="{{ url_for('entries.create_image') }}" method="post" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="image">Select Image</label>
+                <input type="file" id="image" name="image" accept="image/*" required>
+                <small class="form-hint">Supported formats: PNG, JPG, GIF, WebP, SVG (max 16 MB)</small>
+            </div>
+            <div class="form-group">
+                <label for="caption">Caption (optional)</label>
+                <input type="text" id="caption" name="caption" placeholder="Image caption...">
+            </div>
+            <button type="submit" class="btn btn-primary">Upload Image</button>
+        </form>
+
+        <!-- Placeholder forms for other types (to be implemented) -->
+        <form id="data-form" class="entry-form" style="display:none;">
+            <p class="placeholder-text">Data entry form coming in Phase 3...</p>
+        </form>
+        <form id="code-form" class="entry-form" style="display:none;">
+            <p class="placeholder-text">Code entry form coming in Phase 4...</p>
+        </form>
+    </aside>
+
+    <!-- RIGHT PANEL: Timeline -->
+    <section class="timeline-panel">
+        <h2>Timeline</h2>
+        
+        <div class="timeline" id="timeline">
+            {% if entries %}
+                {% for entry in entries %}
+                    {% include "entries/_entry_card.html" %}
+                {% endfor %}
+            {% else %}
+                <p class="empty-state">No entries yet. Create your first entry on the left!</p>
+            {% endif %}
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Function to switch to a specific tab
+function switchToTab(type) {
+    const tab = document.querySelector(`.tab[data-type="${type}"]`);
+    if (!tab || tab.disabled) return;
+    
+    // Update active tab
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    
+    // Hide all forms, show the selected one
+    document.querySelectorAll('.entry-form').forEach(f => {
+        f.style.display = 'none';
+        f.classList.remove('active');
+    });
+    const form = document.getElementById(type + '-form');
+    form.style.display = 'block';
+    form.classList.add('active');
+}
+
+// Tab switching for entry types
+document.querySelectorAll('.entry-type-tabs .tab').forEach(tab => {
+    tab.addEventListener('click', function() {
+        if (this.disabled) return;
+        switchToTab(this.dataset.type);
+    });
+});
+
+// Check for tab parameter in URL (to stay on tab after error)
+const urlParams = new URLSearchParams(window.location.search);
+const tabParam = urlParams.get('tab');
+if (tabParam) {
+    switchToTab(tabParam);
+}
+
+// Auto-scroll timeline to bottom (newest entries)
+const timeline = document.getElementById('timeline');
+timeline.scrollTop = timeline.scrollHeight;
+</script>
+{% endblock %}

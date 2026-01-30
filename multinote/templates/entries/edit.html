@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Entry – multiNote{% endblock %}
+
+{% block content %}
+<div class="edit-view">
+    <a href="{{ url_for('entries.index') }}" class="back-link">← Back to Notebook</a>
+    
+    <h2>Edit Entry</h2>
+    
+    <div class="edit-meta">
+        <span class="entry-type-badge">{{ entry.type|title }}</span>
+        <span class="meta-info">Created: {{ entry.timestamp_display }}</span>
+        {% if entry.is_edited %}
+            <span class="meta-info">Last edited: {{ entry.edited_at_display }}</span>
+        {% endif %}
+    </div>
+
+    <form action="{{ url_for('entries.edit', entry_id=entry.id) }}" method="post" class="edit-form">
+        <div class="form-group">
+            <label for="title">Title (optional)</label>
+            <input type="text" id="title" name="title" value="{{ entry.title or '' }}" placeholder="Entry title...">
+        </div>
+        <div class="form-group">
+            <label for="body">Content</label>
+            <textarea id="body" name="body" rows="12" required>{{ entry.body }}</textarea>
+        </div>
+        <div class="form-actions">
+            <a href="{{ url_for('entries.index') }}" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

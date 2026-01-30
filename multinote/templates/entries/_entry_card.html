@@ -1,0 +1,79 @@
+{# Entry card partial – renders a single entry in the timeline #}
+<article class="entry-card entry-{{ entry.type }}">
+    {% if entry.type == 'header' %}
+    {# Compact single-row header for run header entries #}
+    <header class="entry-header entry-header-compact">
+        <div class="entry-header-left">
+            <span class="entry-author" title="Author">{{ entry.author }}</span>
+            <span class="entry-separator">·</span>
+            <span class="entry-type-badge badge-{{ entry.type }}">{{ entry.type|title }}</span>
+            <span class="entry-separator">·</span>
+            <time class="entry-timestamp" datetime="{{ entry.created_at.isoformat() }}">
+                {{ entry.timestamp_display }}
+            </time>
+            {% if entry.title %}
+                <span class="entry-separator">·</span>
+                <span class="entry-title-inline">{{ entry.title }}</span>
+            {% endif %}
+        </div>
+    </header>
+    {% else %}
+    {# Standard header for other entry types #}
+    <header class="entry-header">
+        <div class="entry-header-left">
+            <span class="entry-author" title="Author">{{ entry.author }}</span>
+            <span class="entry-separator">·</span>
+            <span class="entry-type-badge badge-{{ entry.type }}">{{ entry.type|title }}</span>
+            <span class="entry-separator">·</span>
+            <time class="entry-timestamp" datetime="{{ entry.created_at.isoformat() }}">
+                {{ entry.timestamp_display }}
+            </time>
+            {% if entry.is_edited %}
+                <span class="entry-edited" title="Edited {{ entry.edited_at_display }}{% if entry.edited_by %} by {{ entry.edited_by }}{% endif %}">
+                    (edited{% if entry.edited_by and entry.edited_by != entry.author %} by {{ entry.edited_by }}{% endif %})
+                </span>
+            {% endif %}
+        </div>
+        <div class="entry-actions">
+            <a href="{{ url_for('entries.edit', entry_id=entry.id) }}" class="btn-icon" title="Edit entry">
+                ✏️
+            </a>
+        </div>
+    </header>
+    
+    {% if entry.title %}
+        <h3 class="entry-title">{{ entry.title }}</h3>
+    {% endif %}
+    {% endif %}
+    
+    <div class="entry-body">
+        {% if entry.type == 'text' %}
+            <div class="markdown-content">
+                {{ entry.body|markdown }}
+            </div>
+        {% elif entry.type == 'header' %}
+            {# Parse JSON body and render structured header content #}
+            {% set meta = entry.body|fromjson %}
+            {% include "entries/_header_content.html" %}
+        {% elif entry.type == 'image' %}
+            {# Image rendering #}
+            {% include "entries/_image_content.html" %}
+        {% elif entry.type == 'data' %}
+            {# Data plot rendering - Phase 3 #}
+            <div class="plot-container" data-plot="{{ entry.body }}">
+                <p>Plot placeholder</p>
+            </div>
+        {% elif entry.type == 'code' %}
+            {# Code cell rendering - Phase 4 #}
+            <pre class="code-cell">{{ entry.body }}</pre>
+        {% endif %}
+    </div>
+    
+    {% if entry.tags.count() > 0 %}
+        <footer class="entry-tags">
+            {% for tag in entry.tags %}
+                <a href="#" class="tag">#{{ tag.name }}</a>
+            {% endfor %}
+        </footer>
+    {% endif %}
+</article>

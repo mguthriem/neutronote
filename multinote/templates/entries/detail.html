@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+
+{% block title %}{{ entry.title or 'Entry' }} – multiNote{% endblock %}
+
+{% block content %}
+<div class="detail-view">
+    <a href="{{ url_for('entries.index') }}" class="back-link">← Back to Notebook</a>
+    
+    {% include "entries/_entry_card.html" %}
+</div>
+{% endblock %}

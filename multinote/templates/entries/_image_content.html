@@ -1,0 +1,10 @@
+{# Image entry content – renders uploaded image #}
+{# Expects: entry with body containing the image filename #}
+<figure class="image-content">
+    <img src="{{ url_for('entries.uploaded_file', filename=entry.body) }}" 
+         alt="{{ entry.title or 'Uploaded image' }}"
+         loading="lazy">
+    {% if entry.title %}
+        <figcaption>{{ entry.title }}</figcaption>
+    {% endif %}
+</figure>

@@ -1,0 +1,85 @@
+[project]
+name = "multinote"
+version = "0.1.0"
+description = "Web-based e-lab notebook for time-sequenced experiment entries"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Your Name", email = "you@example.com" }]
+
+dependencies = [
+    "flask>=3.0",
+    "flask-sqlalchemy>=3.1",
+    "flask-login>=0.6",
+    "flask-wtf>=1.2",
+    "python-dotenv>=1.0",
+    "plotly>=5.18",
+    "pandas>=2.1",
+    "markdown>=3.5",
+    "h5py>=3.10",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "ruff>=0.2",
+    "black>=24.1",
+]
+
+[project.scripts]
+multinote = "multinote.app:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# ---------- Pixi configuration ----------
+[tool.pixi.project]
+name = "multinote"
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
+
+[tool.pixi.dependencies]
+python = ">=3.10"
+flask = ">=3.0"
+flask-sqlalchemy = ">=3.1"
+flask-login = ">=0.6"
+flask-wtf = ">=1.2"
+python-dotenv = ">=1.0"
+plotly = ">=5.18"
+pandas = ">=2.1"
+markdown = ">=3.5"
+h5py = ">=3.10"
+
+[tool.pixi.pypi-dependencies]
+gunicorn = ">=21.0"
+
+[tool.pixi.feature.dev.dependencies]
+pytest = ">=8.0"
+pytest-cov = ">=4.1"
+ruff = ">=0.2"
+black = ">=24.1"
+
+[tool.pixi.environments]
+default = { features = ["dev"], solve-group = "default" }
+dev = { features = ["dev"], solve-group = "default" }
+
+[tool.pixi.tasks]
+dev = "flask --app multinote.app run --debug"
+test = "pytest -q tests/"
+lint = "ruff check multinote tests"
+fmt = "black multinote tests"
+
+# ---------- Tool configs ----------
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.black]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
