@@ -22,7 +22,7 @@ from werkzeug.utils import secure_filename
 from ..app import allowed_file
 from ..models import Entry, NotebookConfig, db
 from ..services.metadata import get_run_metadata
-from ..services.data import discover_state_ids, discover_reduced_runs
+from ..services.data import discover_state_ids, discover_reduced_runs, get_run_metadata_lazy, get_run_metadata_quick
 
 bp = Blueprint("entries", __name__, url_prefix="/entries")
 
@@ -177,6 +177,97 @@ def uploaded_file(filename):
     return send_from_directory(current_app.config["UPLOAD_FOLDER"], filename)
 
 
+@bp.route("/api/create/data", methods=["POST"])
+def api_create_data():
+    """
+    API: Create a new data entry from the plot viewer.
+    
+    Expects JSON body with:
+        - run_number: int (single run) OR
+        - run_numbers: list of int (multi-run)
+        - state_id: str
+        - workspace: str (dsp_all, dsp_bank, dsp_column)
+        - selected_spectra: list of int (for multi-spectrum workspaces)
+        - x_range: [min, max] (optional, zoom state)
+        - y_range: [min, max] (optional, zoom state)
+        - title: str (optional, defaults to run title)
+        - note: str (optional, user's annotation)
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+    
+    # Support both single run_number and run_numbers array
+    run_number = data.get("run_number")
+    run_numbers = data.get("run_numbers", [])
+    
+    # Normalize to run_numbers list
+    if run_number and not run_numbers:
+        run_numbers = [int(run_number)]
+    elif run_numbers:
+        run_numbers = [int(r) for r in run_numbers]
+    
+    state_id = data.get("state_id")
+    workspace = data.get("workspace", "dsp_all")
+    selected_spectra = data.get("selected_spectra", [])
+    x_range = data.get("x_range")  # [min, max] or None
+    y_range = data.get("y_range")  # [min, max] or None
+    title = data.get("title", "").strip()
+    note = data.get("note", "").strip()
+    
+    if not run_numbers or not state_id:
+        return jsonify({"error": "run_number(s) and state_id required"}), 400
+    
+    # Get run metadata for default title
+    config = NotebookConfig.get_config()
+    if not config.is_configured:
+        return jsonify({"error": "Notebook IPTS not configured"}), 400
+    
+    # Build the entry body as JSON
+    entry_body = {
+        "run_numbers": run_numbers,  # Always store as array
+        "run_number": run_numbers[0],  # Backward compat: first run
+        "state_id": state_id,
+        "workspace": workspace,
+        "selected_spectra": selected_spectra,
+        "ipts": config.ipts,
+        "note": note,
+    }
+    
+    # Include zoom range if provided
+    if x_range:
+        entry_body["x_range"] = x_range
+    if y_range:
+        entry_body["y_range"] = y_range
+    
+    # Generate title if not provided
+    if not title:
+        if len(run_numbers) == 1:
+            metadata = get_run_metadata_quick(config.ipts, run_numbers[0])
+            title = f"Run {run_numbers[0]}: {metadata.get('title', 'Untitled')}"
+        else:
+            title = f"Runs {', '.join(map(str, run_numbers[:3]))}"
+            if len(run_numbers) > 3:
+                title += f"... ({len(run_numbers)} total)"
+    
+    # Create the entry
+    entry = Entry(
+        type=Entry.TYPE_DATA,
+        title=title,
+        body=json.dumps(entry_body),
+    )
+    
+    db.session.add(entry)
+    db.session.commit()
+    
+    run_desc = str(run_numbers[0]) if len(run_numbers) == 1 else f"{len(run_numbers)} runs"
+    return jsonify({
+        "success": True,
+        "entry_id": entry.id,
+        "message": f"Data entry created for {run_desc}",
+    })
+
+
 @bp.route("/<int:entry_id>")
 def detail(entry_id):
     """View a single entry (for future use)."""
@@ -299,4 +390,216 @@ def api_get_run_info(run_number):
         return jsonify({"error": f"Run {run_number} not found in state {state_id}"}), 404
 
     return jsonify(matching[0].to_dict())
+
+
+@bp.route("/api/runs/<int:run_number>/metadata")
+def api_get_run_metadata(run_number):
+    """
+    API: Get metadata (title, duration, start_time) for a specific run.
+    
+    This endpoint loads metadata lazily - call it after getting the run list
+    to populate metadata for display. It reads directly from the native NeXus
+    file to get accurate metadata quickly.
+    
+    Query params:
+        - state_id: (optional) The state ID (not used, metadata from native file)
+    """
+    config = NotebookConfig.get_config()
+
+    if not config.is_configured:
+        return jsonify({"error": "Notebook IPTS not configured"}), 400
+
+    # Read metadata directly from native NeXus file (faster than reduced file)
+    metadata = get_run_metadata_quick(config.ipts, run_number)
+    
+    return jsonify({
+        "run_number": run_number,
+        "title": metadata.get("title", ""),
+        "duration": metadata.get("duration", 0.0),
+        "start_time": metadata.get("start_time", ""),
+    })
+
+
+@bp.route("/api/runs/metadata/batch", methods=["POST"])
+def api_get_run_metadata_batch():
+    """
+    API: Get metadata for multiple runs in a single request.
+    
+    Accepts JSON body with 'run_numbers' array.
+    Returns metadata for all requested runs.
+    """
+    config = NotebookConfig.get_config()
+
+    if not config.is_configured:
+        return jsonify({"error": "Notebook IPTS not configured"}), 400
+
+    data = request.get_json()
+    if not data or "run_numbers" not in data:
+        return jsonify({"error": "run_numbers array required in request body"}), 400
+    
+    run_numbers = data["run_numbers"]
+    if not isinstance(run_numbers, list):
+        return jsonify({"error": "run_numbers must be an array"}), 400
+    
+    results = {}
+    for run_number in run_numbers[:50]:  # Limit to 50 runs per batch
+        try:
+            run_num = int(run_number)
+            metadata = get_run_metadata_quick(config.ipts, run_num)
+            results[str(run_num)] = {
+                "run_number": run_num,
+                "title": metadata.get("title", ""),
+                "duration": metadata.get("duration", 0.0),
+                "start_time": metadata.get("start_time", ""),
+            }
+        except (ValueError, TypeError):
+            continue
+    
+    return jsonify({"metadata": results})
+
+
+@bp.route("/api/runs/<int:run_number>/plot-data")
+def api_get_plot_data(run_number):
+    """
+    API: Get plot data for a specific reduced run.
+
+    Returns JSON suitable for Plotly.js visualization.
+
+    Query params:
+        - state_id: (required) The state ID for the reduction
+        - workspace: Which workspace to return. Options:
+            - "all" (default): Return all workspaces (for overview)
+            - "dsp_all": Combined d-spacing data
+            - "dsp_bank": Per-bank data
+            - "dsp_column": Per-column data
+            - Or a numeric index (0, 1, 2...)
+    """
+    from ..services.data import load_reduced_data_for_plot
+
+    config = NotebookConfig.get_config()
+
+    if not config.is_configured:
+        return jsonify({"error": "Notebook IPTS not configured"}), 400
+
+    state_id = request.args.get("state_id", "").strip()
+    if not state_id:
+        return jsonify({"error": "state_id parameter required"}), 400
+
+    workspace_param = request.args.get("workspace", "all").strip()
+
+    # Find the reduced file for this run
+    runs = discover_reduced_runs(config.ipts, state_id, lite=True, latest_only=True)
+    matching = [r for r in runs if r.run_number == run_number]
+
+    if not matching:
+        return jsonify({"error": f"Run {run_number} not found in state {state_id}"}), 404
+
+    reduced_file = matching[0].reduced_file
+
+    # Determine workspace selection
+    workspace_index = None
+    if workspace_param != "all":
+        # Try parsing as integer index
+        try:
+            workspace_index = int(workspace_param)
+        except ValueError:
+            # Treat as name substring match
+            workspace_index = workspace_param
+
+    try:
+        workspace_name = f"run_{run_number}"
+        plot_data = load_reduced_data_for_plot(
+            reduced_file, workspace_name, workspace_index=workspace_index
+        )
+
+        # Add run info to the response
+        plot_data["run_number"] = run_number
+        plot_data["state_id"] = state_id
+        plot_data["reduced_file"] = str(reduced_file)
+
+        return jsonify(plot_data)
+
+    except Exception as e:
+        return jsonify({
+            "error": f"Failed to load plot data: {str(e)}",
+            "run_number": run_number,
+            "state_id": state_id,
+        }), 500
+
+
+@bp.route("/api/runs/multi/plot-data")
+def api_get_multi_plot_data():
+    """
+    API: Get plot data for multiple runs overlaid.
+
+    Returns JSON suitable for Plotly.js visualization with multiple traces.
+
+    Query params:
+        - runs: (required, multiple) Run numbers to include
+        - state_id: (required) The state ID for the reduction
+        - workspace: Which workspace to return (default: dsp_all)
+    """
+    from ..services.data import load_reduced_data_for_plot
+
+    config = NotebookConfig.get_config()
+
+    if not config.is_configured:
+        return jsonify({"error": "Notebook IPTS not configured"}), 400
+
+    run_numbers = request.args.getlist("runs", type=int)
+    if not run_numbers:
+        return jsonify({"error": "At least one 'runs' parameter required"}), 400
+
+    state_id = request.args.get("state_id", "").strip()
+    if not state_id:
+        return jsonify({"error": "state_id parameter required"}), 400
+
+    workspace_param = request.args.get("workspace", "dsp_all").strip()
+
+    # Find the reduced files for these runs
+    runs = discover_reduced_runs(config.ipts, state_id, lite=True, latest_only=True)
+    run_map = {r.run_number: r for r in runs}
+
+    # Collect plot data for each run
+    multi_data = {
+        "type": "multi",
+        "runs": [],
+        "state_id": state_id,
+        "workspace": workspace_param,
+    }
+
+    # Determine workspace selection
+    workspace_index = None
+    if workspace_param != "all":
+        try:
+            workspace_index = int(workspace_param)
+        except ValueError:
+            workspace_index = workspace_param
+
+    for run_number in run_numbers:
+        if run_number not in run_map:
+            multi_data["runs"].append({
+                "run_number": run_number,
+                "error": f"Run {run_number} not found in state {state_id}",
+            })
+            continue
+
+        reduced_file = run_map[run_number].reduced_file
+
+        try:
+            workspace_name = f"run_{run_number}"
+            plot_data = load_reduced_data_for_plot(
+                reduced_file, workspace_name, workspace_index=workspace_index
+            )
+            plot_data["run_number"] = run_number
+            plot_data["reduced_file"] = str(reduced_file)
+            multi_data["runs"].append(plot_data)
+
+        except Exception as e:
+            multi_data["runs"].append({
+                "run_number": run_number,
+                "error": str(e),
+            })
+
+    return jsonify(multi_data)
 

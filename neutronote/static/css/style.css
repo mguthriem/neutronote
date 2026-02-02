@@ -1169,6 +1169,20 @@ a:hover {
     border-bottom: 1px solid var(--color-border);
 }
 
+.run-table .checkbox-col,
+.run-table .checkbox-cell {
+    width: 40px;
+    text-align: center;
+    padding: 0.6rem 0.5rem;
+}
+
+.run-table .checkbox-col input,
+.run-table .checkbox-cell input {
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+}
+
 .run-table .run-row {
     cursor: pointer;
     transition: background-color 0.15s;
@@ -1205,8 +1219,262 @@ a:hover {
     white-space: nowrap;
 }
 
+.selection-info {
+    flex: 1;
+    font-size: 0.9rem;
+    color: var(--color-text-muted);
+}
+
 .loading-row {
     text-align: center;
     color: var(--color-text-muted);
     padding: 2rem !important;
 }
+
+.loading-text {
+    color: var(--color-text-muted);
+    font-style: italic;
+    font-size: 0.9em;
+}
+
+/* ============================================
+   Plot Viewer Modal
+   ============================================ */
+
+.modal-fullscreen {
+    width: 95%;
+    max-width: 1200px;
+    height: 80vh;
+    max-height: 800px;
+}
+
+.plot-controls {
+    display: flex;
+    align-items: flex-end;
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+    background: var(--color-bg);
+    border-bottom: 1px solid var(--color-border);
+    flex-wrap: wrap;
+}
+
+.plot-controls .control-group {
+    min-width: 150px;
+}
+
+.plot-controls .control-group label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    margin-bottom: 0.25rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.plot-controls select {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    font-size: 0.9rem;
+    background: var(--color-surface);
+}
+
+.plot-controls .control-group-spacer {
+    flex: 1;
+    min-width: 0;
+}
+
+.plot-controls .btn {
+    margin-left: 0;
+}
+
+/* Spectrum checkboxes */
+.spectrum-checkboxes {
+    display: flex;
+    align-items: flex-end;
+}
+
+.checkbox-group {
+    display: flex;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+}
+
+.spectrum-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.35rem 0.6rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.15s ease;
+    user-select: none;
+}
+
+.spectrum-checkbox:hover {
+    border-color: var(--color-primary);
+}
+
+.spectrum-checkbox:has(input:checked) {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: white;
+}
+
+.spectrum-checkbox input[type="checkbox"] {
+    display: none;
+}
+
+.plot-body {
+    flex: 1;
+    padding: 0.5rem 1rem;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.plot-container {
+    flex: 1;
+    min-height: 300px;
+    max-height: calc(90vh - 200px);  /* Leave room for header, controls, footer */
+    background: var(--color-surface);
+    border-radius: var(--radius);
+    border: 1px solid var(--color-border);
+}
+
+/* Ensure Plotly fills the container properly */
+.plot-container .js-plotly-plot,
+.plot-container .plotly {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.plot-container .loading-spinner {
+    color: var(--color-text-muted);
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+}
+
+.plot-container .error-message {
+    color: var(--color-error, #dc2626);
+    padding: 1rem;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+}
+
+.plot-info {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.75rem 1.5rem;
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    border-top: 1px solid var(--color-border);
+    background: var(--color-bg);
+}
+
+#plot-run-info {
+    font-weight: 500;
+}
+
+#plot-file-info {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+}
+
+/* ============================================
+   Data Entry Content (Timeline Plots)
+   ============================================ */
+
+.data-entry-content {
+    padding: 0.5rem 0;
+}
+
+.data-entry-info {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.data-run-badge {
+    background: var(--color-primary);
+    color: white;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.data-workspace-badge {
+    background: var(--color-bg);
+    color: var(--color-text);
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    border: 1px solid var(--color-border);
+}
+
+.data-spectra-info {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+}
+
+.data-note {
+    background: var(--color-bg);
+    padding: 0.75rem;
+    border-radius: var(--radius);
+    margin-bottom: 0.75rem;
+    font-size: 0.9rem;
+    color: var(--color-text);
+    border-left: 3px solid var(--color-primary);
+}
+
+.data-plot-container {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    height: 250px;
+    margin-bottom: 0.5rem;
+    overflow: hidden;
+    position: relative;
+}
+
+.data-plot-container .js-plotly-plot,
+.data-plot-container .plotly {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.data-plot-container .plot-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+}
+
+.data-entry-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}
+
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+}
+

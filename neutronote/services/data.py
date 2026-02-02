@@ -383,8 +383,8 @@ def discover_reduced_runs(
             pixelmask_pattern = f"pixelmask_{run_number:06d}_{timestamp}.h5"
             pixelmask_file = ts_dir / pixelmask_pattern
 
-            # Extract metadata from the reduced file
-            metadata = get_metadata_from_reduced_file(reduced_file)
+            # NOTE: We no longer load metadata here for performance!
+            # Metadata is loaded lazily via get_run_metadata_lazy()
 
             reduced_run = ReducedRun(
                 run_number=run_number,
@@ -393,9 +393,7 @@ def discover_reduced_runs(
                 reduced_file=reduced_file,
                 record_file=record_file if record_file.exists() else None,
                 pixelmask_file=pixelmask_file if pixelmask_file.exists() else None,
-                title=metadata.get("title"),
-                duration=metadata.get("duration"),
-                start_time=metadata.get("start_time"),
+                # Metadata fields left at defaults - loaded lazily
             )
 
             if run_number not in runs_by_number:
@@ -416,6 +414,26 @@ def discover_reduced_runs(
             result.extend(sorted(reductions, key=lambda r: r.timestamp))
 
     return result
+
+
+def get_run_metadata_lazy(reduced_file: Path | str) -> dict[str, Any]:
+    """
+    Fetch metadata for a single reduced run (called lazily from API).
+    
+    This is the function to call when you need metadata for display,
+    after the initial run list has been loaded without metadata.
+    
+    Parameters
+    ----------
+    reduced_file : Path or str
+        Path to the reduced .nxs file.
+        
+    Returns
+    -------
+    dict
+        Contains 'title', 'duration', 'start_time' keys.
+    """
+    return get_metadata_from_reduced_file(Path(reduced_file))
 
 
 def discover_all_reduced_data(ipts: str, lite: bool = True) -> list[StateInfo]:
@@ -541,3 +559,242 @@ def get_reduced_data(
             "source_file": str(nexus_path(ipts, run_number, lite=lite)),
         },
     }
+
+
+# =============================================================================
+# Load reduced data with Mantid
+# =============================================================================
+
+# Optional mantid import - gracefully degrade if not available
+try:
+    from mantid.simpleapi import LoadNexus, mtd
+    from mantid.api import WorkspaceGroup
+    HAS_MANTID = True
+except ImportError:
+    HAS_MANTID = False
+    WorkspaceGroup = None  # type: ignore
+
+
+def _sanitize_array_for_json(arr: list) -> list:
+    """
+    Replace NaN and Inf values with None for valid JSON serialization.
+    
+    Python's json.dumps converts NaN/Inf to JavaScript literals (NaN, Infinity)
+    which are NOT valid JSON and cause JSON.parse() to fail in browsers.
+    """
+    import math
+    return [None if (isinstance(v, float) and (math.isnan(v) or math.isinf(v))) else v for v in arr]
+
+
+def load_reduced_workspace(reduced_file: Path | str, workspace_name: str | None = None):
+    """
+    Load a reduced NeXus file into a Mantid workspace.
+
+    Parameters
+    ----------
+    reduced_file : Path or str
+        Full path to the reduced .nxs file.
+    workspace_name : str, optional
+        Name for the workspace. If None, derives from filename.
+
+    Returns
+    -------
+    Workspace or WorkspaceGroup
+        The loaded Mantid workspace (may be a group).
+
+    Raises
+    ------
+    ImportError
+        If mantid is not available.
+    FileNotFoundError
+        If the file doesn't exist.
+    """
+    if not HAS_MANTID:
+        raise ImportError("Mantid is not available. Install mantid to load reduced data.")
+
+    reduced_file = Path(reduced_file)
+    if not reduced_file.exists():
+        raise FileNotFoundError(f"Reduced file not found: {reduced_file}")
+
+    if workspace_name is None:
+        # Derive name from filename: reduced_065886_2025-05-08T162147.nxs -> run_065886
+        workspace_name = f"run_{reduced_file.stem.split('_')[1]}"
+
+    LoadNexus(Filename=str(reduced_file), OutputWorkspace=workspace_name)
+    return mtd[workspace_name]
+
+
+def _extract_single_workspace_data(ws) -> dict[str, Any]:
+    """Extract x/y data from a single (non-group) workspace."""
+    num_spectra = ws.getNumberHistograms()
+
+    # Get axis labels if available
+    x_label = "d-spacing (Å)"  # Default for SNAP reduced data
+    y_label = "Intensity"
+
+    try:
+        x_unit = ws.getAxis(0).getUnit()
+        if x_unit:
+            x_label = x_unit.caption()
+            if x_unit.symbol():
+                x_label += f" ({x_unit.symbol()})"
+    except Exception:
+        pass
+
+    if num_spectra == 1:
+        # Single spectrum - return simple x/y arrays
+        x = ws.readX(0)
+        y = ws.readY(0)
+        e = ws.readE(0)
+
+        # Handle histogram vs point data (x may be 1 longer than y)
+        if len(x) == len(y) + 1:
+            x = (x[:-1] + x[1:]) / 2  # Convert to bin centers
+
+        result = {
+            "type": "1d",
+            "name": ws.name(),
+            "x": _sanitize_array_for_json(x.tolist()),
+            "y": _sanitize_array_for_json(y.tolist()),
+            "labels": {"x": x_label, "y": y_label},
+        }
+        if e is not None and e.size > 0:
+            result["errors"] = _sanitize_array_for_json(e.tolist())
+        return result
+
+    else:
+        # Multiple spectra - return as 2D data for heatmap or multiple traces
+        all_x = []
+        all_y = []
+        all_e = []
+
+        for i in range(num_spectra):
+            x = ws.readX(i)
+            y = ws.readY(i)
+            e = ws.readE(i)
+
+            if len(x) == len(y) + 1:
+                x = (x[:-1] + x[1:]) / 2
+
+            all_x.append(_sanitize_array_for_json(x.tolist()))
+            all_y.append(_sanitize_array_for_json(y.tolist()))
+            if e.size > 0:
+                all_e.append(_sanitize_array_for_json(e.tolist()))
+
+        result = {
+            "type": "2d",
+            "name": ws.name(),
+            "num_spectra": num_spectra,
+            "x": all_x,
+            "y": all_y,
+            "labels": {"x": x_label, "y": y_label},
+        }
+        if all_e:
+            result["errors"] = all_e
+        return result
+
+
+def extract_plot_data_from_workspace(workspace_name: str) -> dict[str, Any]:
+    """
+    Extract x/y data from a Mantid workspace for plotting.
+
+    Parameters
+    ----------
+    workspace_name : str
+        Name of the workspace in Mantid's ADS.
+
+    Returns
+    -------
+    dict
+        Contains plot data. For WorkspaceGroups, returns a dict with 'workspaces'
+        list containing data for each workspace in the group.
+        For single workspaces, returns 'x', 'y' arrays plus metadata.
+    """
+    if not HAS_MANTID:
+        raise ImportError("Mantid is not available.")
+
+    ws = mtd[workspace_name]
+
+    # Handle WorkspaceGroup (SNAPRed produces these)
+    if isinstance(ws, WorkspaceGroup):
+        workspaces = []
+        for i in range(ws.getNumberOfEntries()):
+            sub_ws = ws.getItem(i)
+            # Skip pixel mask workspaces (they have only 1 bin)
+            if sub_ws.readX(0).size <= 1:
+                continue
+            workspaces.append(_extract_single_workspace_data(sub_ws))
+
+        return {
+            "type": "group",
+            "name": ws.name(),
+            "workspaces": workspaces,
+            "count": len(workspaces),
+        }
+    else:
+        return _extract_single_workspace_data(ws)
+
+
+def load_reduced_data_for_plot(
+    reduced_file: Path | str,
+    workspace_name: str | None = None,
+    workspace_index: int | str | None = None,
+) -> dict[str, Any]:
+    """
+    Load a reduced NeXus file and extract plot data in one call.
+
+    This is the main entry point for getting plot data from a reduced file.
+
+    Parameters
+    ----------
+    reduced_file : Path or str
+        Full path to the reduced .nxs file.
+    workspace_name : str, optional
+        Name for the workspace. If None, derives from filename.
+    workspace_index : int or str, optional
+        For WorkspaceGroups, specify which workspace to return:
+        - int: index into the group (0-based)
+        - str: name substring to match (e.g., "dsp_all")
+        - None: return all workspaces in the group
+
+    Returns
+    -------
+    dict
+        Plot data with 'x', 'y', 'labels', 'type', and optionally 'errors'.
+        Also includes 'meta' with source file info.
+    """
+    reduced_file = Path(reduced_file)
+
+    if workspace_name is None:
+        workspace_name = f"run_{reduced_file.stem.split('_')[1]}"
+
+    # Load the workspace
+    load_reduced_workspace(reduced_file, workspace_name)
+
+    # Extract plot data
+    plot_data = extract_plot_data_from_workspace(workspace_name)
+
+    # If a specific workspace was requested from a group, extract it
+    if workspace_index is not None and plot_data.get("type") == "group":
+        workspaces = plot_data["workspaces"]
+        if isinstance(workspace_index, int):
+            if 0 <= workspace_index < len(workspaces):
+                plot_data = workspaces[workspace_index]
+            else:
+                raise IndexError(f"Workspace index {workspace_index} out of range")
+        elif isinstance(workspace_index, str):
+            # Find by name substring
+            for ws_data in workspaces:
+                if workspace_index in ws_data.get("name", ""):
+                    plot_data = ws_data
+                    break
+            else:
+                raise ValueError(f"No workspace matching '{workspace_index}' found")
+
+    # Add metadata
+    plot_data["meta"] = {
+        "source_file": str(reduced_file),
+        "workspace_name": workspace_name,
+    }
+
+    return plot_data

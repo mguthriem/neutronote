@@ -1,0 +1,55 @@
+{# Data entry content partial – renders plot with interactive controls #}
+{% set data = entry.body|fromjson %}
+{% set run_numbers = data.run_numbers if data.run_numbers else [data.run_number] %}
+{% set is_multi = run_numbers|length > 1 %}
+
+<div class="data-entry-content">
+    <div class="data-entry-info">
+        {% if is_multi %}
+            {% for run in run_numbers[:5] %}
+                <span class="data-run-badge">Run {{ run }}</span>
+            {% endfor %}
+            {% if run_numbers|length > 5 %}
+                <span class="data-run-badge">+{{ run_numbers|length - 5 }} more</span>
+            {% endif %}
+        {% else %}
+            <span class="data-run-badge">Run {{ data.run_number }}</span>
+        {% endif %}
+        <span class="data-workspace-badge">{{ data.workspace }}</span>
+        {% if data.selected_spectra and data.selected_spectra|length > 0 %}
+            <span class="data-spectra-info">{{ data.selected_spectra|length }} spectra</span>
+        {% endif %}
+    </div>
+    
+    {% if data.note %}
+    <div class="data-note">
+        {{ data.note }}
+    </div>
+    {% endif %}
+    
+    <div class="data-plot-container" 
+         id="data-plot-{{ entry.id }}"
+         data-run="{{ data.run_number }}"
+         data-runs="{{ run_numbers|tojson }}"
+         data-state="{{ data.state_id }}"
+         data-workspace="{{ data.workspace }}"
+         data-spectra="{{ data.selected_spectra|tojson if data.selected_spectra else '[]' }}"
+         data-x-range="{{ data.x_range|tojson if data.x_range else 'null' }}"
+         data-y-range="{{ data.y_range|tojson if data.y_range else 'null' }}">
+        <div class="plot-loading">Loading plot...</div>
+    </div>
+    
+    <div class="data-entry-actions">
+        {% if is_multi %}
+        <button type="button" class="btn btn-sm btn-secondary" 
+                onclick="openPlotViewerForMultiEntry({{ run_numbers|tojson }}, '{{ data.state_id }}', '{{ data.workspace }}', {{ data.x_range|tojson if data.x_range else 'null' }}, {{ data.y_range|tojson if data.y_range else 'null' }})">
+            🔍 Expand
+        </button>
+        {% else %}
+        <button type="button" class="btn btn-sm btn-secondary" 
+                onclick="openPlotViewerForEntry({{ data.run_number }}, '{{ data.state_id }}', '{{ data.workspace }}', {{ data.x_range|tojson if data.x_range else 'null' }}, {{ data.y_range|tojson if data.y_range else 'null' }})">
+            🔍 Expand
+        </button>
+        {% endif %}
+    </div>
+</div>

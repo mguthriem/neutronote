@@ -182,6 +182,7 @@
             <table class="run-table" id="run-table">
                 <thead>
                     <tr>
+                        <th class="checkbox-col"><input type="checkbox" id="select-all-runs" title="Select all visible runs"></th>
                         <th class="sortable" data-sort="run_number">Run # <span class="sort-indicator"></span></th>
                         <th class="sortable" data-sort="title">Title <span class="sort-indicator"></span></th>
                         <th class="sortable" data-sort="duration">Duration <span class="sort-indicator"></span></th>
@@ -189,16 +190,64 @@
                     </tr>
                 </thead>
                 <tbody id="run-table-body">
-                    <tr><td colspan="4" class="loading-row">Loading runs...</td></tr>
+                    <tr><td colspan="5" class="loading-row">Loading runs...</td></tr>
                 </tbody>
             </table>
         </div>
         
         <div class="modal-footer">
+            <div class="selection-info">
+                <span id="selected-count">0</span> run(s) selected
+            </div>
             <button type="button" class="btn btn-secondary" onclick="closeRunBrowser()">Cancel</button>
             <button type="button" class="btn btn-primary" id="select-run-btn" disabled onclick="confirmRunSelection()">
-                Select Run
+                Select Run(s)
             </button>
+        </div>
+    </div>
+</div>
+
+<!-- Plot Viewer Modal -->
+<div id="plot-viewer-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-content modal-fullscreen">
+        <div class="modal-header">
+            <h3 id="plot-viewer-title">📊 Reduced Data</h3>
+            <button type="button" class="btn-close" onclick="closePlotViewer()">×</button>
+        </div>
+        
+        <div class="plot-controls">
+            <div class="control-group">
+                <label>Grouping</label>
+                <select id="workspace-select">
+                    <option value="dsp_all">Combined (All Pixels)</option>
+                    <option value="dsp_bank">Per Bank (2 spectra)</option>
+                    <option value="dsp_column">Per Column (6 spectra)</option>
+                </select>
+            </div>
+            
+            <div class="control-group spectrum-checkboxes" id="spectrum-select-group" style="display: none;">
+                <label>Spectra</label>
+                <div class="checkbox-group" id="spectrum-checkboxes">
+                    <!-- Populated dynamically based on workspace -->
+                </div>
+            </div>
+            
+            <div class="control-group control-group-spacer"></div>
+            
+            <button type="button" class="btn btn-secondary" id="add-to-timeline-btn" onclick="addPlotToTimeline()">
+                📝 Add to Timeline
+            </button>
+        </div>
+        
+        <div class="modal-body plot-body">
+            <div id="plot-container" class="plot-container">
+                <div class="loading-spinner">Loading plot data...</div>
+            </div>
+        </div>
+        
+        <div class="plot-info">
+            <span id="plot-run-info"></span>
+            <span id="plot-file-info"></span>
         </div>
     </div>
 </div>
@@ -292,7 +341,8 @@ const selectedStateInput = document.getElementById('selected-state');
 const dataSubmitBtn = document.getElementById('data-submit-btn');
 
 let allRuns = [];  // Cache of runs for current state
-let selectedRun = null;
+let selectedRun = null;  // Single selected run (backward compat)
+let selectedRuns = [];   // Array of selected runs (multi-select)
 
 // Load states when data tab is clicked
 function loadStates() {
@@ -374,7 +424,7 @@ const selectRunBtn = document.getElementById('select-run-btn');
 
 let browserRuns = [];  // All runs loaded in the browser
 let filteredRuns = [];  // Current filtered view
-let browserSelectedRun = null;  // Currently selected run in modal
+let browserSelectedRuns = [];  // Array of selected runs in modal (multi-select)
 let sortColumn = 'run_number';
 let sortDirection = 'asc';
 
@@ -386,7 +436,8 @@ function openRunBrowser() {
     }
     
     runBrowserModal.style.display = 'flex';
-    browserSelectedRun = null;
+    browserSelectedRuns = [];
+    updateSelectionCount();
     selectRunBtn.disabled = true;
     
     // Reset filters
@@ -486,26 +537,73 @@ function applyFiltersAndSort() {
 // Render the run table
 function renderRunTable() {
     if (filteredRuns.length === 0) {
-        runTableBody.innerHTML = '<tr><td colspan="4" class="loading-row">No runs match the current filters</td></tr>';
+        runTableBody.innerHTML = '<tr><td colspan="5" class="loading-row">No runs match the current filters</td></tr>';
         return;
     }
+    
+    // Collect runs that need metadata loading
+    const runsNeedingMetadata = [];
     
     runTableBody.innerHTML = '';
     filteredRuns.forEach(run => {
         const row = document.createElement('tr');
         row.className = 'run-row';
-        if (browserSelectedRun && browserSelectedRun.run_number === run.run_number) {
+        row.dataset.runNumber = run.run_number;
+        
+        // Check if this run is selected
+        const isSelected = browserSelectedRuns.some(r => r.run_number === run.run_number);
+        if (isSelected) {
             row.classList.add('selected');
         }
+        
+        // Show loading indicator if metadata not yet loaded
+        const hasMetadata = run._metadataLoaded;
+        const titleDisplay = hasMetadata ? escapeHtml(run.title || '—') : '<span class="loading-text">loading...</span>';
+        const durationDisplay = hasMetadata ? (run.duration_display || '—') : '...';
+        const timeDisplay = hasMetadata ? (run.start_time_display || run.timestamp_display || '—') : '...';
+        
         row.innerHTML = `
+            <td class="checkbox-cell"><input type="checkbox" class="run-checkbox" data-run="${run.run_number}" ${isSelected ? 'checked' : ''}></td>
             <td class="run-number-cell">${run.run_number}</td>
-            <td class="title-cell" title="${escapeHtml(run.title || 'No title')}">${escapeHtml(run.title || '—')}</td>
-            <td class="duration-cell">${run.duration_display || '—'}</td>
-            <td class="timestamp-cell">${run.start_time_display || run.timestamp_display || '—'}</td>
+            <td class="title-cell" title="${escapeHtml(run.title || '')}">${titleDisplay}</td>
+            <td class="duration-cell">${durationDisplay}</td>
+            <td class="timestamp-cell">${timeDisplay}</td>
         `;
-        row.addEventListener('click', () => selectRunInBrowser(run, row));
+        
+        // Checkbox change handler
+        const checkbox = row.querySelector('.run-checkbox');
+        checkbox.addEventListener('change', (e) => {
+            e.stopPropagation();
+            toggleRunSelection(run, row, checkbox.checked);
+        });
+        
+        // Row click toggles selection
+        row.addEventListener('click', (e) => {
+            if (e.target.type !== 'checkbox') {
+                checkbox.checked = !checkbox.checked;
+                toggleRunSelection(run, row, checkbox.checked);
+            }
+        });
+        
+        // Double click to select just this run and open plot viewer
+        row.addEventListener('dblclick', (e) => {
+            if (e.target.type === 'checkbox') return;
+            browserSelectedRuns = [run];  // Select only this run
+            updateSelectionCount();
+            confirmRunSelectionAndView();
+        });
+        
         runTableBody.appendChild(row);
+        
+        // Track runs needing metadata
+        if (!hasMetadata && !run._metadataLoading) {
+            run._metadataLoading = true;
+            runsNeedingMetadata.push(run.run_number);
+        }
     });
+    
+    // Update select-all checkbox state
+    updateSelectAllCheckbox();
     
     // Update sort indicators
     document.querySelectorAll('.run-table th').forEach(th => {
@@ -514,31 +612,125 @@ function renderRunTable() {
             th.classList.add(sortDirection === 'asc' ? 'sorted-asc' : 'sorted-desc');
         }
     });
-}
-
-// Select a run in the browser
-function selectRunInBrowser(run, row) {
-    // Clear previous selection
-    document.querySelectorAll('.run-row.selected').forEach(r => r.classList.remove('selected'));
     
-    // Mark new selection
-    row.classList.add('selected');
-    browserSelectedRun = run;
-    selectRunBtn.disabled = false;
+    // Batch load metadata for visible runs
+    if (runsNeedingMetadata.length > 0) {
+        loadMetadataBatch(runsNeedingMetadata);
+    }
 }
 
-// Confirm run selection from browser
+// Toggle run selection
+function toggleRunSelection(run, row, selected) {
+    if (selected) {
+        if (!browserSelectedRuns.some(r => r.run_number === run.run_number)) {
+            browserSelectedRuns.push(run);
+        }
+        row.classList.add('selected');
+    } else {
+        browserSelectedRuns = browserSelectedRuns.filter(r => r.run_number !== run.run_number);
+        row.classList.remove('selected');
+    }
+    updateSelectionCount();
+    updateSelectAllCheckbox();
+}
+
+// Update selection count display
+function updateSelectionCount() {
+    document.getElementById('selected-count').textContent = browserSelectedRuns.length;
+    selectRunBtn.disabled = browserSelectedRuns.length === 0;
+}
+
+// Update select-all checkbox state
+function updateSelectAllCheckbox() {
+    const selectAll = document.getElementById('select-all-runs');
+    if (!selectAll) return;
+    
+    const allSelected = filteredRuns.length > 0 && 
+        filteredRuns.every(run => browserSelectedRuns.some(r => r.run_number === run.run_number));
+    const someSelected = browserSelectedRuns.length > 0 && !allSelected;
+    
+    selectAll.checked = allSelected;
+    selectAll.indeterminate = someSelected;
+}
+
+// Batch load metadata for multiple runs
+function loadMetadataBatch(runNumbers) {
+    fetch('/entries/api/runs/metadata/batch', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({run_numbers: runNumbers})
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.metadata) {
+            // Update all runs with received metadata
+            for (const [runNum, meta] of Object.entries(data.metadata)) {
+                const run = allRuns.find(r => r.run_number === parseInt(runNum));
+                if (run) {
+                    run.title = meta.title || '';
+                    run.duration = meta.duration || 0;
+                    run.start_time = meta.start_time || '';
+                    run._metadataLoaded = true;
+                    
+                    // Format display values
+                    const sec = run.duration;
+                    if (sec < 60) run.duration_display = `${sec.toFixed(0)} sec`;
+                    else if (sec < 3600) run.duration_display = `${(sec/60).toFixed(1)} min`;
+                    else run.duration_display = `${(sec/3600).toFixed(1)} hr`;
+                    
+                    if (run.start_time) {
+                        try {
+                            const dt = run.start_time.substring(0, 19);
+                            run.start_time_display = dt.replace('T', ' ').substring(0, 16);
+                        } catch(e) {
+                            run.start_time_display = run.start_time;
+                        }
+                    }
+                    
+                    // Update the row in the table
+                    updateRunRowDisplay(run);
+                }
+            }
+        }
+    })
+    .catch(err => console.error('Failed to load metadata batch:', err));
+}
+
+// Update a single row's display after metadata loads
+function updateRunRowDisplay(run) {
+    const row = runTableBody.querySelector(`tr[data-run-number="${run.run_number}"]`);
+    if (!row) return;
+    
+    const cells = row.querySelectorAll('td');
+    if (cells.length >= 5) {
+        cells[2].textContent = run.title || '—';
+        cells[2].title = run.title || '';
+        cells[3].textContent = run.duration_display || '—';
+        cells[4].textContent = run.start_time_display || run.timestamp_display || '—';
+    }
+}
+
+// Confirm run selection from browser (multi-select)
 function confirmRunSelection() {
-    if (!browserSelectedRun) return;
+    if (browserSelectedRuns.length === 0) return;
     
-    selectedRun = browserSelectedRun;
-    selectedRunInput.value = browserSelectedRun.run_number;
+    // Store selected runs
+    selectedRuns = [...browserSelectedRuns];
+    selectedRun = selectedRuns[0];  // Keep backward compat
+    selectedRunInput.value = selectedRuns.map(r => r.run_number).join(',');
     
     // Update selection display
-    selectedRunNumber.textContent = browserSelectedRun.run_number;
-    document.getElementById('selected-run-title').textContent = browserSelectedRun.title || '—';
-    document.getElementById('selected-run-duration').textContent = browserSelectedRun.duration_display || '—';
-    document.getElementById('selected-run-timestamp').textContent = browserSelectedRun.start_time_display || browserSelectedRun.timestamp_display || '—';
+    if (selectedRuns.length === 1) {
+        selectedRunNumber.textContent = selectedRuns[0].run_number;
+        document.getElementById('selected-run-title').textContent = selectedRuns[0].title || '—';
+        document.getElementById('selected-run-duration').textContent = selectedRuns[0].duration_display || '—';
+        document.getElementById('selected-run-timestamp').textContent = selectedRuns[0].start_time_display || selectedRuns[0].timestamp_display || '—';
+    } else {
+        selectedRunNumber.textContent = selectedRuns.map(r => r.run_number).join(', ');
+        document.getElementById('selected-run-title').textContent = `${selectedRuns.length} runs selected`;
+        document.getElementById('selected-run-duration').textContent = '—';
+        document.getElementById('selected-run-timestamp').textContent = '—';
+    }
     selectedRunInfo.style.display = 'block';
     
     // Enable submit button
@@ -547,10 +739,47 @@ function confirmRunSelection() {
     closeRunBrowser();
 }
 
+// Confirm run selection and immediately open plot viewer (for double-click)
+function confirmRunSelectionAndView() {
+    if (browserSelectedRuns.length === 0) return;
+    
+    // Store selected runs
+    selectedRuns = [...browserSelectedRuns];
+    selectedRun = selectedRuns[0];
+    selectedRunInput.value = selectedRuns.map(r => r.run_number).join(',');
+    
+    // Update selection display
+    if (selectedRuns.length === 1) {
+        selectedRunNumber.textContent = selectedRuns[0].run_number;
+        document.getElementById('selected-run-title').textContent = selectedRuns[0].title || '—';
+        document.getElementById('selected-run-duration').textContent = selectedRuns[0].duration_display || '—';
+        document.getElementById('selected-run-timestamp').textContent = selectedRuns[0].start_time_display || selectedRuns[0].timestamp_display || '—';
+    } else {
+        selectedRunNumber.textContent = selectedRuns.map(r => r.run_number).join(', ');
+        document.getElementById('selected-run-title').textContent = `${selectedRuns.length} runs selected`;
+        document.getElementById('selected-run-duration').textContent = '—';
+        document.getElementById('selected-run-timestamp').textContent = '—';
+    }
+    selectedRunInfo.style.display = 'block';
+    
+    // Enable submit button
+    dataSubmitBtn.disabled = false;
+    
+    // Set plot viewer variables
+    currentRunNumbers = selectedRuns.map(r => r.run_number);
+    currentRunNumber = currentRunNumbers[0];  // Backward compat
+    currentStateId = stateSelect.value;
+    
+    // Close run browser and open plot viewer
+    closeRunBrowser();
+    openPlotViewer();
+}
+
 // Clear run selection
 function clearRunSelection() {
     selectedRun = null;
-    browserSelectedRun = null;
+    selectedRuns = [];
+    browserSelectedRuns = [];
     selectedRunInput.value = '';
     selectedRunInfo.style.display = 'none';
     dataSubmitBtn.disabled = true;
@@ -583,10 +812,31 @@ document.querySelectorAll('.run-table th.sortable').forEach(th => {
     });
 });
 
+// Set up select-all checkbox
+document.getElementById('select-all-runs')?.addEventListener('change', function() {
+    const checked = this.checked;
+    filteredRuns.forEach(run => {
+        if (checked) {
+            if (!browserSelectedRuns.some(r => r.run_number === run.run_number)) {
+                browserSelectedRuns.push(run);
+            }
+        } else {
+            browserSelectedRuns = browserSelectedRuns.filter(r => r.run_number !== run.run_number);
+        }
+    });
+    updateSelectionCount();
+    renderRunTable();
+});
+
 // Close modal on escape key
 document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape' && runBrowserModal.style.display === 'flex') {
-        closeRunBrowser();
+    if (e.key === 'Escape') {
+        if (runBrowserModal.style.display === 'flex') {
+            closeRunBrowser();
+        }
+        if (plotViewerModal && plotViewerModal.style.display === 'flex') {
+            closePlotViewer();
+        }
     }
 });
 
@@ -596,5 +846,1017 @@ runBrowserModal?.addEventListener('click', function(e) {
         closeRunBrowser();
     }
 });
+
+// =============================================================================
+// Plot Viewer Logic
+// =============================================================================
+
+const plotViewerModal = document.getElementById('plot-viewer-modal');
+const plotContainer = document.getElementById('plot-container');
+const workspaceSelect = document.getElementById('workspace-select');
+const spectrumSelectGroup = document.getElementById('spectrum-select-group');
+const dataForm = document.getElementById('data-form');
+
+let currentPlotData = null;  // Current full plot data from API (may contain multi-run data)
+let currentRunNumber = null;  // Single run (backward compat)
+let currentRunNumbers = [];   // Array of run numbers for multi-run plotting
+let currentStateId = null;
+
+// Handle data form submission - open plot viewer
+if (dataForm) {
+    dataForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        if (selectedRuns.length === 0 && !selectedRun) {
+            alert('Please select a run first');
+            return;
+        }
+        currentRunNumbers = selectedRuns.length > 0 ? selectedRuns.map(r => r.run_number) : [selectedRun.run_number];
+        currentRunNumber = currentRunNumbers[0];
+        currentStateId = stateSelect.value;
+        openPlotViewer();
+    });
+}
+
+// Open the plot viewer modal
+function openPlotViewer() {
+    plotViewerModal.style.display = 'flex';
+    
+    // Update title based on number of runs
+    if (currentRunNumbers.length > 1) {
+        document.getElementById('plot-viewer-title').textContent = `📊 Runs ${currentRunNumbers.join(', ')}`;
+    } else {
+        document.getElementById('plot-viewer-title').textContent = `📊 Run ${currentRunNumber}`;
+    }
+    
+    plotContainer.innerHTML = '<div class="loading-spinner">Loading plot data...</div>';
+    
+    // Reset workspace selector
+    workspaceSelect.value = 'dsp_all';  // Default to combined view
+    spectrumSelectGroup.style.display = 'none';
+    
+    // Load plot data
+    loadPlotData('dsp_all');
+}
+
+// Close the plot viewer modal
+function closePlotViewer() {
+    plotViewerModal.style.display = 'none';
+    currentPlotData = null;
+}
+
+// =========================================================================
+// Plot Data Cache - prevents redundant API calls
+// =========================================================================
+const plotDataCache = new Map();
+const CACHE_EXPIRY_MS = 5 * 60 * 1000;  // 5 minutes
+
+function getCacheKey(runNumber, stateId, workspace) {
+    return `${runNumber}-${stateId}-${workspace}`;
+}
+
+function getMultiCacheKey(runNumbers, stateId, workspace) {
+    return `multi-${runNumbers.sort().join(',')}-${stateId}-${workspace}`;
+}
+
+function getCachedData(cacheKey) {
+    const cached = plotDataCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_EXPIRY_MS) {
+        return cached.data;
+    }
+    if (cached) {
+        plotDataCache.delete(cacheKey);  // Expired
+    }
+    return null;
+}
+
+function setCachedData(cacheKey, data) {
+    plotDataCache.set(cacheKey, {
+        data: data,
+        timestamp: Date.now()
+    });
+}
+
+// Load plot data from API (supports multi-run) with caching
+function loadPlotData(workspaceType) {
+    plotContainer.innerHTML = '<div class="loading-spinner">Loading plot data...</div>';
+    
+    // Build cache key and check cache
+    let cacheKey;
+    let url;
+    
+    if (currentRunNumbers.length > 1) {
+        cacheKey = getMultiCacheKey(currentRunNumbers, currentStateId, workspaceType);
+        const runParams = currentRunNumbers.map(r => `runs=${r}`).join('&');
+        url = `/entries/api/runs/multi/plot-data?${runParams}&state_id=${currentStateId}&workspace=${workspaceType}`;
+    } else {
+        cacheKey = getCacheKey(currentRunNumber, currentStateId, workspaceType);
+        url = `/entries/api/runs/${currentRunNumber}/plot-data?state_id=${currentStateId}&workspace=${workspaceType}`;
+    }
+    
+    // Check cache first
+    const cachedData = getCachedData(cacheKey);
+    if (cachedData) {
+        console.log('Using cached plot data for', cacheKey);
+        currentPlotData = cachedData;
+        renderPlot(cachedData);
+        updatePlotInfo(cachedData);
+        return;
+    }
+    
+    fetch(url)
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                plotContainer.innerHTML = `<div class="error-message">Error: ${data.error}</div>`;
+                return;
+            }
+            // Cache the data
+            setCachedData(cacheKey, data);
+            currentPlotData = data;
+            renderPlot(data);
+            updatePlotInfo(data);
+        })
+        .catch(err => {
+            plotContainer.innerHTML = `<div class="error-message">Failed to load plot data: ${err}</div>`;
+            console.error('Plot data error:', err);
+        });
+}
+
+// Render the plot using Plotly
+function renderPlot(data) {
+    const traces = [];
+    const colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
+    
+    // Determine title based on data type
+    let title;
+    if (data.type === 'multi') {
+        const runNums = data.runs.filter(r => !r.error).map(r => r.run_number);
+        title = runNums.length > 3 
+            ? `Runs ${runNums.slice(0, 3).join(', ')}... (${runNums.length} total) - d-spacing`
+            : `Runs ${runNums.join(', ')} - d-spacing`;
+    } else {
+        title = `Run ${currentRunNumber} - d-spacing`;
+    }
+    
+    const layout = {
+        title: title,
+        xaxis: { title: 'd (Å)', type: 'linear' },
+        yaxis: { title: 'Intensity (arb. units)', type: 'linear' },
+        showlegend: true,
+        legend: { x: 1, xanchor: 'right', y: 1 },
+        margin: { l: 60, r: 30, t: 40, b: 45 },
+        hovermode: 'closest',
+        autosize: true,
+    };
+    
+    // Apply saved zoom range if available (from expanding a timeline entry)
+    if (initialXRange) {
+        layout.xaxis.range = initialXRange;
+    }
+    if (initialYRange) {
+        layout.yaxis.range = initialYRange;
+    }
+    
+    const config = {
+        responsive: true,
+        displayModeBar: true,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+        displaylogo: false,
+    };
+    
+    if (data.type === 'multi') {
+        // Multi-run overlay plot
+        // Check if any run has 2d data (multi-spectrum)
+        const has2dData = data.runs.some(r => r.type === '2d');
+        
+        if (has2dData) {
+            // Show spectrum selector for multi-spectrum data
+            const firstRun = data.runs.find(r => r.type === '2d');
+            if (firstRun) {
+                populateSpectrumCheckboxes(firstRun.num_spectra, firstRun.name);
+                spectrumSelectGroup.style.display = 'flex';
+            }
+            // Render with all spectra (will sum across spectra for each run)
+            renderMultiRunPlot(data, null);  // null = all spectra
+        } else {
+            spectrumSelectGroup.style.display = 'none';
+            renderMultiRunPlot(data, null);
+        }
+        
+        initialXRange = null;
+        initialYRange = null;
+        
+    } else if (data.type === '1d') {
+        // Single spectrum plot (Combined/All Pixels) - no spectrum selector needed
+        const x = data.x.filter((_, i) => data.y[i] !== null);
+        const y = data.y.filter(v => v !== null);
+        traces.push({
+            x: x,
+            y: y,
+            type: 'scatter',
+            mode: 'lines',
+            name: 'Combined',
+            line: { width: 1.5, color: colors[0] },
+        });
+        spectrumSelectGroup.style.display = 'none';
+        
+        Plotly.newPlot(plotContainer, traces, layout, config);
+        
+        // Clear initial zoom after applying (so fresh views aren't affected)
+        initialXRange = null;
+        initialYRange = null;
+        
+    } else if (data.type === '2d') {
+        // Multi-spectrum plot - populate checkboxes and render all by default
+        populateSpectrumCheckboxes(data.num_spectra, data.name);
+        spectrumSelectGroup.style.display = 'flex';
+        
+        // Render with all spectra selected
+        const allIndices = Array.from({length: data.num_spectra}, (_, i) => i);
+        renderPlotWithSelection(data, allIndices);
+        
+    } else if (data.type === 'group') {
+        // Overview of all workspaces - plot the 'all' one by default
+        const allWs = data.workspaces.find(w => w.name.includes('dsp_all'));
+        if (allWs) {
+            const x = allWs.x.filter((_, i) => allWs.y[i] !== null);
+            const y = allWs.y.filter(v => v !== null);
+            traces.push({
+                x: x,
+                y: y,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Combined (all pixels)',
+                line: { width: 1.5, color: colors[0] },
+            });
+        }
+        spectrumSelectGroup.style.display = 'none';
+        
+        Plotly.newPlot(plotContainer, traces, layout, config);
+        
+        // Clear initial zoom after applying
+        initialXRange = null;
+        initialYRange = null;
+    }
+}
+
+// Get a user-friendly name for the workspace
+function getWorkspaceDisplayName(name) {
+    if (name.includes('dsp_all')) return 'Combined (all pixels)';
+    if (name.includes('dsp_bank')) return 'Per Bank';
+    if (name.includes('dsp_column')) return 'Per Column';
+    return name;
+}
+
+// Get spectrum label based on workspace type
+function getSpectrumLabel(wsName, index) {
+    if (wsName && wsName.includes('dsp_bank')) {
+        return `Bank ${index + 1}`;
+    }
+    if (wsName && wsName.includes('dsp_column')) {
+        return `Column ${index + 1}`;
+    }
+    return `Spectrum ${index + 1}`;
+}
+
+// Get short spectrum label for legend
+function getShortSpectrumLabel(wsName, index) {
+    if (wsName && wsName.includes('dsp_bank')) {
+        return `Bank ${index + 1}`;
+    }
+    if (wsName && wsName.includes('dsp_column')) {
+        return `Col ${index + 1}`;
+    }
+    return `Sp ${index + 1}`;
+}
+
+// Populate the spectrum checkboxes
+function populateSpectrumCheckboxes(numSpectra, wsName) {
+    const container = document.getElementById('spectrum-checkboxes');
+    container.innerHTML = '';
+    
+    for (let i = 0; i < numSpectra; i++) {
+        const label = getSpectrumLabel(wsName, i);
+        const checkbox = document.createElement('label');
+        checkbox.className = 'spectrum-checkbox';
+        checkbox.innerHTML = `
+            <input type="checkbox" value="${i}" checked onchange="updatePlotFromCheckboxes()">
+            <span>${label}</span>
+        `;
+        container.appendChild(checkbox);
+    }
+}
+
+// Get selected spectrum indices from checkboxes
+function getSelectedSpectra() {
+    const checkboxes = document.querySelectorAll('#spectrum-checkboxes input[type="checkbox"]:checked');
+    return Array.from(checkboxes).map(cb => parseInt(cb.value));
+}
+
+// Update plot based on checkbox selection
+function updatePlotFromCheckboxes() {
+    if (!currentPlotData) return;
+    
+    const selectedIndices = getSelectedSpectra();
+    if (selectedIndices.length === 0) {
+        plotContainer.innerHTML = '<div class="error-message">Select at least one spectrum to display</div>';
+        return;
+    }
+    
+    if (currentPlotData.type === 'multi') {
+        // Multi-run with spectrum selection
+        renderMultiRunPlot(currentPlotData, selectedIndices);
+    } else if (currentPlotData.type === '2d') {
+        // Single-run multi-spectrum
+        renderPlotWithSelection(currentPlotData, selectedIndices);
+    }
+}
+
+// Render multi-run plot with optional spectrum selection
+function renderMultiRunPlot(data, selectedSpectra) {
+    const traces = [];
+    const colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
+    
+    const runNums = data.runs.filter(r => !r.error).map(r => r.run_number);
+    const title = runNums.length > 3 
+        ? `Runs ${runNums.slice(0, 3).join(', ')}... (${runNums.length} total) - d-spacing`
+        : `Runs ${runNums.join(', ')} - d-spacing`;
+    
+    const layout = {
+        title: title,
+        xaxis: { title: 'd (Å)', type: 'linear' },
+        yaxis: { title: 'Intensity (arb. units)', type: 'linear' },
+        showlegend: true,
+        legend: { x: 1, xanchor: 'right', y: 1 },
+        margin: { l: 60, r: 30, t: 40, b: 45 },
+        hovermode: 'closest',
+        autosize: true,
+    };
+    
+    // Apply saved zoom range if available
+    if (initialXRange) {
+        layout.xaxis.range = initialXRange;
+    }
+    if (initialYRange) {
+        layout.yaxis.range = initialYRange;
+    }
+    
+    // Helper function to filter aligned x/y pairs
+    function filterValidPairs(xArr, yArr) {
+        const validX = [];
+        const validY = [];
+        for (let j = 0; j < yArr.length; j++) {
+            if (yArr[j] !== null && !isNaN(yArr[j])) {
+                validX.push(xArr[j]);
+                validY.push(yArr[j]);
+            }
+        }
+        return { x: validX, y: validY };
+    }
+    
+    data.runs.forEach((runData, idx) => {
+        if (runData.error) {
+            console.warn(`Run ${runData.run_number}: ${runData.error}`);
+            return;
+        }
+        
+        const color = colors[idx % colors.length];
+        
+        if (runData.type === '1d') {
+            const filtered = filterValidPairs(runData.x, runData.y);
+            if (filtered.x.length > 0) {
+                traces.push({
+                    x: filtered.x,
+                    y: filtered.y,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: `Run ${runData.run_number}`,
+                    line: { width: 1.5, color: color },
+                });
+            }
+        } else if (runData.type === '2d') {
+            // Multi-spectrum: sum selected spectra, or all if none specified
+            const numSpectra = runData.num_spectra;
+            const indices = selectedSpectra || Array.from({length: numSpectra}, (_, i) => i);
+            const xArr = runData.x[0];
+            const ySum = xArr.map((_, i) => {
+                let sum = 0;
+                let hasValue = false;
+                for (const s of indices) {
+                    if (s < numSpectra && runData.y[s] && runData.y[s][i] !== null && !isNaN(runData.y[s][i])) {
+                        sum += runData.y[s][i];
+                        hasValue = true;
+                    }
+                }
+                return hasValue ? sum : null;
+            });
+            const filtered = filterValidPairs(xArr, ySum);
+            
+            if (filtered.x.length > 0) {
+                traces.push({
+                    x: filtered.x,
+                    y: filtered.y,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: `Run ${runData.run_number}`,
+                    line: { width: 1.5, color: color },
+                });
+            }
+        }
+    });
+    
+    if (traces.length === 0) {
+        plotContainer.innerHTML = '<div class="error-message">No valid data to plot</div>';
+        return;
+    }
+    
+    const config = {
+        responsive: true,
+        displayModeBar: true,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+        displaylogo: false,
+    };
+    
+    Plotly.newPlot(plotContainer, traces, layout, config);
+}
+
+// Render plot with specific spectrum selection (single-run 2d)
+function renderPlotWithSelection(data, selectedIndices) {
+    const traces = [];
+    const colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b'];
+    
+    const layout = {
+        title: `Run ${currentRunNumber} - d-spacing`,
+        xaxis: { title: 'd (Å)', type: 'linear' },
+        yaxis: { title: 'Intensity (arb. units)', type: 'linear' },
+        showlegend: true,
+        legend: { x: 1, xanchor: 'right', y: 1 },
+        margin: { l: 60, r: 30, t: 40, b: 45 },
+        hovermode: 'closest',
+        autosize: true,
+    };
+    
+    // Apply saved zoom range if available
+    if (initialXRange) {
+        layout.xaxis.range = initialXRange;
+    }
+    if (initialYRange) {
+        layout.yaxis.range = initialYRange;
+    }
+    
+    console.log('renderPlotWithSelection: num_spectra =', data.num_spectra, 'selectedIndices =', selectedIndices);
+    
+    for (const i of selectedIndices) {
+        if (i >= data.num_spectra) {
+            console.warn('Spectrum index', i, 'out of range (num_spectra =', data.num_spectra, ')');
+            continue;
+        }
+        
+        const xArr = data.x[i];
+        const yArr = data.y[i];
+        
+        if (!xArr || !yArr) {
+            console.warn('Missing data for spectrum', i);
+            continue;
+        }
+        
+        // Filter out null values while keeping x/y pairs aligned
+        const validPairs = [];
+        for (let j = 0; j < yArr.length; j++) {
+            if (yArr[j] !== null && !isNaN(yArr[j])) {
+                validPairs.push({ x: xArr[j], y: yArr[j] });
+            }
+        }
+        
+        if (validPairs.length === 0) {
+            console.warn('No valid data points for spectrum', i);
+            continue;
+        }
+        
+        console.log('Spectrum', i, ': adding', validPairs.length, 'points, x range:', validPairs[0].x, 'to', validPairs[validPairs.length-1].x);
+        
+        traces.push({
+            x: validPairs.map(p => p.x),
+            y: validPairs.map(p => p.y),
+            type: 'scatter',
+            mode: 'lines',
+            name: getShortSpectrumLabel(data.name, i),
+            line: { width: 1.5, color: colors[i % colors.length] },
+        });
+    }
+    
+    console.log('Total traces created:', traces.length);
+    
+    if (traces.length === 0) {
+        plotContainer.innerHTML = '<div class="error-message">No valid data to display</div>';
+        return;
+    }
+    
+    const config = {
+        responsive: true,
+        displayModeBar: true,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+        displaylogo: false,
+    };
+    
+    Plotly.newPlot(plotContainer, traces, layout, config);
+    
+    // Clear initial zoom after applying
+    initialXRange = null;
+    initialYRange = null;
+}
+
+// Update plot info display
+function updatePlotInfo(data) {
+    const runInfo = document.getElementById('plot-run-info');
+    const fileInfo = document.getElementById('plot-file-info');
+    
+    if (runInfo && selectedRun) {
+        runInfo.textContent = `Run ${currentRunNumber}: ${selectedRun.title || 'Untitled'}`;
+    }
+    if (fileInfo && data.reduced_file) {
+        fileInfo.textContent = data.reduced_file.split('/').slice(-2).join('/');
+    }
+}
+
+// Handle workspace selector change
+if (workspaceSelect) {
+    workspaceSelect.addEventListener('change', function() {
+        loadPlotData(this.value);
+    });
+}
+
+// Add current plot to timeline as a data entry
+function addPlotToTimeline() {
+    // Check for runs - support both single and multi-run
+    const runNumbers = currentRunNumbers.length > 0 ? currentRunNumbers : (currentRunNumber ? [currentRunNumber] : []);
+    
+    if (runNumbers.length === 0) {
+        alert('No run selected');
+        return;
+    }
+    
+    // Use currentStateId (set when plot was opened) - more reliable than reading dropdown
+    if (!currentStateId) {
+        alert('No state selected. Please select a run from the browser first.');
+        return;
+    }
+    
+    const workspace = workspaceSelect.value;
+    
+    // Get selected spectra for both single-run 2d and multi-run with 2d data
+    let selectedSpectra = [];
+    if (currentPlotData) {
+        if (currentPlotData.type === '2d') {
+            selectedSpectra = getSelectedSpectra();
+        } else if (currentPlotData.type === 'multi') {
+            // Check if any run has 2d data
+            const has2dData = currentPlotData.runs.some(r => r.type === '2d');
+            if (has2dData) {
+                selectedSpectra = getSelectedSpectra();
+            }
+        }
+    }
+    
+    // Capture current zoom range from the plot
+    let xRange = null;
+    let yRange = null;
+    const plotDiv = document.getElementById('plot-container');
+    if (plotDiv && plotDiv.layout) {
+        const xaxis = plotDiv.layout.xaxis;
+        const yaxis = plotDiv.layout.yaxis;
+        if (xaxis && xaxis.range) {
+            xRange = xaxis.range;
+        }
+        if (yaxis && yaxis.range) {
+            yRange = yaxis.range;
+        }
+    }
+    
+    // Prompt for optional note
+    const note = prompt('Add a note (optional):', '');
+    
+    const btn = document.getElementById('add-to-timeline-btn');
+    const originalText = btn.textContent;
+    btn.textContent = 'Saving...';
+    btn.disabled = true;
+    
+    // Build request body - support both single and multi-run
+    const requestBody = {
+        state_id: currentStateId,
+        workspace: workspace,
+        selected_spectra: selectedSpectra,
+        x_range: xRange,
+        y_range: yRange,
+        note: note || '',
+    };
+    
+    if (runNumbers.length === 1) {
+        requestBody.run_number = runNumbers[0];
+    } else {
+        requestBody.run_numbers = runNumbers;
+    }
+    
+    fetch('/entries/api/create/data', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(requestBody)
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            // Close modal and dynamically add entry to timeline instead of full reload
+            closePlotViewer();
+            
+            // Fetch and append the new entry HTML
+            fetchAndAppendNewEntry(data.entry_id, runNumbers, currentStateId, workspace, selectedSpectra, xRange, yRange);
+            
+            btn.textContent = originalText;
+            btn.disabled = false;
+        } else {
+            alert('Error: ' + (data.error || 'Failed to create entry'));
+            btn.textContent = originalText;
+            btn.disabled = false;
+        }
+    })
+    .catch(err => {
+        console.error('Failed to add to timeline:', err);
+        alert('Failed to add to timeline. Check console for details.');
+        btn.textContent = originalText;
+        btn.disabled = false;
+    });
+}
+
+// Dynamically add new entry to timeline without full reload
+function fetchAndAppendNewEntry(entryId, runNumbers, stateId, workspace, selectedSpectra, xRange, yRange) {
+    // Create a simple entry card for the new data entry
+    const timeline = document.getElementById('timeline');
+    if (!timeline) return;
+    
+    const isMulti = runNumbers.length > 1;
+    const runBadges = isMulti 
+        ? runNumbers.slice(0, 5).map(r => `<span class="data-run-badge">Run ${r}</span>`).join('') 
+          + (runNumbers.length > 5 ? `<span class="data-run-badge">+${runNumbers.length - 5} more</span>` : '')
+        : `<span class="data-run-badge">Run ${runNumbers[0]}</span>`;
+    
+    // Escape JSON for use in HTML attributes
+    const runsJson = JSON.stringify(runNumbers).replace(/"/g, '&quot;');
+    const spectraJson = JSON.stringify(selectedSpectra).replace(/"/g, '&quot;');
+    const xRangeJson = xRange ? JSON.stringify(xRange).replace(/"/g, '&quot;') : 'null';
+    const yRangeJson = yRange ? JSON.stringify(yRange).replace(/"/g, '&quot;') : 'null';
+    
+    // Build onclick handler - needs careful escaping
+    let onclickHandler;
+    if (isMulti) {
+        onclickHandler = `openPlotViewerForMultiEntry([${runNumbers.join(',')}], '${stateId}', '${workspace}', ${xRange ? '[' + xRange.join(',') + ']' : 'null'}, ${yRange ? '[' + yRange.join(',') + ']' : 'null'})`;
+    } else {
+        onclickHandler = `openPlotViewerForEntry(${runNumbers[0]}, '${stateId}', '${workspace}', ${xRange ? '[' + xRange.join(',') + ']' : 'null'}, ${yRange ? '[' + yRange.join(',') + ']' : 'null'})`;
+    }
+    
+    const entryHtml = `
+        <article class="entry-card entry-type-data" id="entry-${entryId}">
+            <div class="entry-header">
+                <span class="entry-type-badge">📊 data</span>
+                <time class="entry-timestamp">${new Date().toLocaleString()}</time>
+            </div>
+            <h3 class="entry-title">${isMulti ? `Runs ${runNumbers.slice(0, 3).join(', ')}${runNumbers.length > 3 ? '...' : ''}` : `Run ${runNumbers[0]}`}</h3>
+            <div class="entry-body">
+                <div class="data-entry-content">
+                    <div class="data-entry-info">
+                        ${runBadges}
+                        <span class="data-workspace-badge">${workspace}</span>
+                    </div>
+                    <div class="data-plot-container" 
+                         id="data-plot-${entryId}"
+                         data-run="${runNumbers[0]}"
+                         data-runs="${runsJson}"
+                         data-state="${stateId}"
+                         data-workspace="${workspace}"
+                         data-spectra="${spectraJson}"
+                         data-x-range="${xRangeJson}"
+                         data-y-range="${yRangeJson}">
+                        <div class="plot-loading">Loading plot...</div>
+                    </div>
+                    <div class="data-entry-actions">
+                        <button type="button" class="btn btn-sm btn-secondary" 
+                                onclick="${onclickHandler}">
+                            🔍 Expand
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </article>
+    `;
+    
+    // Insert at the end of the timeline
+    timeline.insertAdjacentHTML('beforeend', entryHtml);
+    
+    // Scroll to the new entry
+    const newEntry = document.getElementById(`entry-${entryId}`);
+    if (newEntry) {
+        newEntry.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+    
+    // Render the plot using cached data if available
+    const plotContainer = document.getElementById(`data-plot-${entryId}`);
+    if (plotContainer) {
+        renderTimelinePlotWithCache(plotContainer, runNumbers, stateId, workspace, selectedSpectra, xRange, yRange);
+    }
+}
+
+// Close plot viewer modal on backdrop click
+plotViewerModal?.addEventListener('click', function(e) {
+    if (e.target === this) {
+        closePlotViewer();
+    }
+});
+
+// =========================================================================
+// Timeline Data Entry Plots
+// =========================================================================
+
+// Store initial zoom range for when plot viewer opens from an entry
+let initialXRange = null;
+let initialYRange = null;
+
+// Open plot viewer for an existing entry (expand button)
+function openPlotViewerForEntry(runNumber, stateId, workspace, xRange, yRange) {
+    // Set up the state for plot viewer
+    const stateSelect = document.getElementById('state-select');
+    if (stateSelect) {
+        stateSelect.value = stateId;
+    }
+    
+    // Create a minimal selectedRun object
+    selectedRun = {
+        run_number: runNumber,
+        title: '',  // Will be populated when plot loads
+    };
+    currentRunNumber = runNumber;
+    currentRunNumbers = [runNumber];  // Single run as array
+    currentStateId = stateId;  // Must set this for loadPlotData to work
+    
+    // Store initial zoom range to apply after plot loads
+    initialXRange = xRange || null;
+    initialYRange = yRange || null;
+    
+    // Set workspace selector
+    if (workspaceSelect) {
+        workspaceSelect.value = workspace;
+    }
+    
+    // Open viewer and load data
+    plotViewerModal.style.display = 'flex';
+    document.getElementById('plot-viewer-title').textContent = `📊 Run ${runNumber}`;
+    loadPlotData(workspace);
+}
+
+// Open plot viewer for a multi-run entry (expand button)
+function openPlotViewerForMultiEntry(runNumbers, stateId, workspace, xRange, yRange) {
+    // Set up the state for plot viewer
+    const stateSelect = document.getElementById('state-select');
+    if (stateSelect) {
+        stateSelect.value = stateId;
+    }
+    
+    currentRunNumber = runNumbers[0];  // First run as primary
+    currentRunNumbers = runNumbers;     // All runs for multi-plot
+    currentStateId = stateId;
+    
+    // Store initial zoom range to apply after plot loads
+    initialXRange = xRange || null;
+    initialYRange = yRange || null;
+    
+    // Set workspace selector
+    if (workspaceSelect) {
+        workspaceSelect.value = workspace;
+    }
+    
+    // Open viewer and load data
+    plotViewerModal.style.display = 'flex';
+    const title = runNumbers.length <= 3 
+        ? `📊 Runs ${runNumbers.join(', ')}`
+        : `📊 Runs ${runNumbers.slice(0, 3).join(', ')}... (${runNumbers.length} total)`;
+    document.getElementById('plot-viewer-title').textContent = title;
+    loadPlotData(workspace);
+}
+
+// Render a plot in the timeline with caching support
+function renderTimelinePlot(container) {
+    const runNumber = parseInt(container.dataset.run);
+    const runsData = container.dataset.runs;
+    const runNumbers = runsData ? JSON.parse(runsData) : [runNumber];
+    const isMultiRun = runNumbers.length > 1;
+    const stateId = container.dataset.state;
+    const workspace = container.dataset.workspace;
+    const selectedSpectra = JSON.parse(container.dataset.spectra || '[]');
+    
+    // Get saved zoom range if available
+    const xRangeStr = container.dataset.xRange;
+    const yRangeStr = container.dataset.yRange;
+    const xRange = (xRangeStr && xRangeStr !== 'null') ? JSON.parse(xRangeStr) : null;
+    const yRange = (yRangeStr && yRangeStr !== 'null') ? JSON.parse(yRangeStr) : null;
+    
+    renderTimelinePlotWithCache(container, runNumbers, stateId, workspace, selectedSpectra, xRange, yRange);
+}
+
+// Core timeline plot render function that uses cache
+function renderTimelinePlotWithCache(container, runNumbers, stateId, workspace, selectedSpectra, xRange, yRange) {
+    const isMultiRun = runNumbers.length > 1;
+    
+    // Check cache first
+    const cacheKey = isMultiRun 
+        ? getMultiCacheKey(runNumbers, stateId, workspace)
+        : getCacheKey(runNumbers[0], stateId, workspace);
+    
+    const cachedData = getCachedData(cacheKey);
+    if (cachedData) {
+        console.log('Using cached data for timeline plot:', cacheKey);
+        renderTimelinePlotFromData(container, cachedData, runNumbers, selectedSpectra, xRange, yRange, isMultiRun);
+        return;
+    }
+    
+    container.innerHTML = '<div class="plot-loading">Loading...</div>';
+    
+    // Choose endpoint based on single or multi-run
+    const url = isMultiRun
+        ? `/entries/api/runs/multi/plot-data?state_id=${stateId}&workspace=${workspace}&${runNumbers.map(r => `runs=${r}`).join('&')}`
+        : `/entries/api/runs/${runNumbers[0]}/plot-data?state_id=${stateId}&workspace=${workspace}`;
+    
+    fetch(url)
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                container.innerHTML = `<div class="plot-loading" style="color: #dc2626;">Error: ${data.error}</div>`;
+                return;
+            }
+            
+            // Cache the data
+            setCachedData(cacheKey, data);
+            
+            renderTimelinePlotFromData(container, data, runNumbers, selectedSpectra, xRange, yRange, isMultiRun);
+        })
+        .catch(err => {
+            console.error('Failed to load timeline plot:', err);
+            container.innerHTML = '<div class="plot-loading" style="color: #dc2626;">Failed to load plot</div>';
+        });
+}
+
+// Render timeline plot from data (extracted for reuse with cache)
+function renderTimelinePlotFromData(container, data, runNumbers, selectedSpectra, xRange, yRange, isMultiRun) {
+    const traces = [];
+    const colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b'];
+    
+    // Helper function to filter aligned x/y pairs
+    function filterValidPairs(xArr, yArr) {
+        const validX = [];
+        const validY = [];
+        for (let j = 0; j < yArr.length; j++) {
+            if (yArr[j] !== null && !isNaN(yArr[j])) {
+                validX.push(xArr[j]);
+                validY.push(yArr[j]);
+            }
+        }
+        return { x: validX, y: validY };
+    }
+    
+    if (data.type === 'multi') {
+        // Multi-run plot - one trace per run
+        data.runs.forEach((runData, idx) => {
+            if (runData.error) {
+                console.warn(`Run ${runData.run_number}: ${runData.error}`);
+                return;
+            }
+            
+            const color = colors[idx % colors.length];
+            
+            if (runData.type === '1d') {
+                const filtered = filterValidPairs(runData.x, runData.y);
+                if (filtered.x.length > 0) {
+                    traces.push({
+                        x: filtered.x, y: filtered.y,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: `Run ${runData.run_number}`,
+                        line: { width: 1, color: color },
+                    });
+                }
+            } else if (runData.type === '2d') {
+                // For 2d data in multi-run, sum selected spectra
+                const numSpectra = runData.num_spectra;
+                const indices = selectedSpectra.length > 0 ? selectedSpectra : 
+                                Array.from({length: numSpectra}, (_, i) => i);
+                const xArr = runData.x[0];
+                const ySum = xArr.map((_, i) => {
+                    let sum = 0;
+                    let hasValue = false;
+                    for (const s of indices) {
+                        if (s < numSpectra && runData.y[s] && runData.y[s][i] !== null && !isNaN(runData.y[s][i])) {
+                            sum += runData.y[s][i];
+                            hasValue = true;
+                        }
+                    }
+                    return hasValue ? sum : null;
+                });
+                const filtered = filterValidPairs(xArr, ySum);
+                
+                if (filtered.x.length > 0) {
+                    traces.push({
+                        x: filtered.x, y: filtered.y,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: `Run ${runData.run_number}`,
+                        line: { width: 1, color: color },
+                    });
+                }
+            }
+        });
+    } else if (data.type === '1d') {
+        // Single spectrum
+        const filtered = filterValidPairs(data.x, data.y);
+        if (filtered.x.length > 0) {
+            traces.push({
+                x: filtered.x, y: filtered.y,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Combined',
+                line: { width: 1, color: colors[0] },
+            });
+        }
+    } else if (data.type === '2d') {
+        // Multi-spectrum - render selected or all
+        const indices = selectedSpectra.length > 0 ? selectedSpectra : 
+                        Array.from({length: data.num_spectra}, (_, i) => i);
+        for (const i of indices) {
+            if (i >= data.num_spectra) continue;
+            const xArr = data.x[i];
+            const yArr = data.y[i];
+            if (!xArr || !yArr) continue;
+            
+            const filtered = filterValidPairs(xArr, yArr);
+            if (filtered.x.length > 0) {
+                traces.push({
+                    x: filtered.x, y: filtered.y,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: `Spectrum ${i}`,
+                    line: { width: 1, color: colors[i % colors.length] },
+                });
+            }
+        }
+    }
+    
+    if (traces.length === 0) {
+        container.innerHTML = '<div class="plot-loading" style="color: #dc2626;">No data to display</div>';
+        return;
+    }
+    
+    // Compact layout for timeline thumbnail
+    const layout = {
+        xaxis: { 
+            title: { text: 'd (Å)', font: { size: 11 } },
+            tickfont: { size: 10 },
+        },
+        yaxis: { 
+            title: { text: 'I', font: { size: 11 } },
+            tickfont: { size: 10 },
+        },
+        showlegend: isMultiRun && traces.length <= 4,  // Show legend for multi-run if few traces
+        legend: { font: { size: 9 }, x: 0.98, xanchor: 'right', y: 0.98 },
+        margin: { l: 45, r: 10, t: 5, b: 35 },
+        hovermode: 'closest',
+        autosize: true,
+    };
+    
+    // Apply saved zoom range if available
+    if (xRange) {
+        layout.xaxis.range = xRange;
+    }
+    if (yRange) {
+        layout.yaxis.range = yRange;
+    }
+    
+    const config = {
+        responsive: true,
+        displayModeBar: false,
+    };
+    
+    try {
+        Plotly.newPlot(container, traces, layout, config);
+    } catch (err) {
+        console.error('Plotly error:', err);
+        container.innerHTML = '<div class="plot-loading" style="color: #dc2626;">Plot render error</div>';
+    }
+}
+
+// Initialize all timeline plots on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const plotContainers = document.querySelectorAll('.data-plot-container');
+    plotContainers.forEach(container => {
+        // Small delay to stagger loading and avoid overwhelming the server
+        setTimeout(() => renderTimelinePlot(container), Math.random() * 500);
+    });
+});
+
 </script>
 {% endblock %}

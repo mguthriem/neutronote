@@ -138,19 +138,28 @@ def find_nexus_file(run_number: int, ipts: str | None = None) -> Path | None:
 
     Uses finddata CLI if available, otherwise scans known IPTS folders.
     """
+
+    def _path_exists_safe(p: Path) -> bool:
+        """Check if path exists, returning False on permission errors."""
+        try:
+            return p.exists()
+        except OSError:
+            # PermissionError, etc. – treat as "not accessible"
+            return False
+
     base = Path("/SNS/SNAP")
 
     # If IPTS is specified, check that folder first
     if ipts:
         ipts_dir = base / ipts
-        if ipts_dir.exists():
+        if _path_exists_safe(ipts_dir):
             # Try native first (has complete metadata)
             native_path = ipts_dir / "nexus" / f"SNAP_{run_number}.nxs.h5"
-            if native_path.exists():
+            if _path_exists_safe(native_path):
                 return native_path
             # Then lite as fallback
             lite_path = ipts_dir / "shared" / "lite" / f"SNAP_{run_number}.lite.nxs.h5"
-            if lite_path.exists():
+            if _path_exists_safe(lite_path):
                 return lite_path
 
     # Try using finddata CLI (same approach as stateFromRun.py)
@@ -159,24 +168,24 @@ def find_nexus_file(run_number: int, ipts: str | None = None) -> Path | None:
 
         record = cli.getFileLoc("SNS", "SNAP", [run_number])
         native_path = Path(record["location"])
-        if native_path.exists():
+        if _path_exists_safe(native_path):
             return native_path
     except Exception:
         pass
 
     # Fallback: scan common IPTS locations
-    if not base.exists():
+    if not _path_exists_safe(base):
         return None
 
     # Look through IPTS folders
     for ipts_dir in sorted(base.glob("IPTS-*"), reverse=True):
         # Try native first (has complete metadata)
         native_path = ipts_dir / "nexus" / f"SNAP_{run_number}.nxs.h5"
-        if native_path.exists():
+        if _path_exists_safe(native_path):
             return native_path
         # Then lite as fallback
         lite_path = ipts_dir / "shared" / "lite" / f"SNAP_{run_number}.lite.nxs.h5"
-        if lite_path.exists():
+        if _path_exists_safe(lite_path):
             return lite_path
 
     return None

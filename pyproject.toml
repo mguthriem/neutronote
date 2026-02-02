@@ -37,8 +37,14 @@ build-backend = "hatchling.build"
 # ---------- Pixi configuration ----------
 [tool.pixi.project]
 name = "neutronote"
-channels = ["conda-forge"]
-platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
+channels = [
+    "conda-forge",
+    "mantid/label/nightly",
+    "mantid-ornl",
+    "neutrons",
+    "oncat",
+]
+platforms = ["linux-64"]
 
 [tool.pixi.dependencies]
 python = ">=3.10"
@@ -51,9 +57,13 @@ plotly = ">=5.18"
 pandas = ">=2.1"
 markdown = ">=3.5"
 h5py = ">=3.10"
+# Mantid/SNAPRed for loading reduced data
+snapred = ">2.0.0"
 
 [tool.pixi.pypi-dependencies]
 gunicorn = ">=21.0"
+# snapwrap installed from local path for development
+snapwrap = { path = "/SNS/SNAP/shared/Malcolm/code/forks/SNAPWrap", editable = true }
 
 [tool.pixi.feature.dev.dependencies]
 pytest = ">=8.0"
@@ -66,7 +76,7 @@ default = { features = ["dev"], solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
 
 [tool.pixi.tasks]
-dev = "flask --app neutronote.app run --debug"
+dev = "pkill -f 'flask.*neutronote' 2>/dev/null; sleep 0.5; flask --app neutronote.app run --debug"
 test = "pytest -q tests/"
 lint = "ruff check neutronote tests"
 fmt = "black neutronote tests"

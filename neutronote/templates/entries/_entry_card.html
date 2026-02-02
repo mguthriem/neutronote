@@ -60,9 +60,7 @@
             {% include "entries/_image_content.html" %}
         {% elif entry.type == 'data' %}
             {# Data plot rendering - Phase 3 #}
-            <div class="plot-container" data-plot="{{ entry.body }}">
-                <p>Plot placeholder</p>
-            </div>
+            {% include "entries/_data_content.html" %}
         {% elif entry.type == 'code' %}
             {# Code cell rendering - Phase 4 #}
             <pre class="code-cell">{{ entry.body }}</pre>
