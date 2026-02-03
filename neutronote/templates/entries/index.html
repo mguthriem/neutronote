@@ -54,7 +54,7 @@
             <button class="tab" data-type="header" {% if not config.is_configured %}disabled title="Configure IPTS first"{% endif %}>Header</button>
             <button class="tab" data-type="image">Image</button>
             <button class="tab" data-type="data" {% if not config.is_configured %}disabled title="Configure IPTS first"{% endif %}>Data</button>
-            <button class="tab" data-type="code" disabled title="Coming soon">Code</button>
+            <button class="tab" data-type="code">Code</button>
         </div>
 
         <!-- Text entry form -->
@@ -139,7 +139,32 @@
         </form>
         
         <form id="code-form" class="entry-form" style="display:none;">
-            <p class="placeholder-text">Code entry form coming in Phase 4...</p>
+            <div class="form-group">
+                <label for="code-editor">Python Code</label>
+                <div id="code-editor-container">
+                    <textarea id="code-editor" name="code" rows="10" placeholder="# Write Python code here...
+# You have access to: numpy, pandas, mantid, snapwrap
+from mantid.simpleapi import *
+print('Hello from neutroNote!')"></textarea>
+                </div>
+                <small class="form-hint">Server-side execution with mantid/snapwrap access. Use print() for output.</small>
+            </div>
+            <div class="code-actions">
+                <button type="button" class="btn btn-primary" onclick="executeCode()">
+                    ▶ Run Code
+                </button>
+                <button type="button" class="btn btn-secondary" onclick="addCodeToTimeline()" id="add-code-btn" disabled>
+                    📝 Add to Timeline
+                </button>
+                <span class="code-status" id="code-status"></span>
+            </div>
+            <div id="code-output-container" class="code-output-container" style="display: none;">
+                <div class="code-output-header">
+                    <strong>Output</strong>
+                    <button type="button" class="btn-clear-output" onclick="clearCodeOutput()">Clear</button>
+                </div>
+                <pre id="code-output" class="code-output"></pre>
+            </div>
         </form>
     </aside>
 
@@ -1956,6 +1981,163 @@ document.addEventListener('DOMContentLoaded', function() {
     // The "Expand" button will load interactive data when clicked
     console.log('Timeline loaded. Data entries show static snapshots.');
 });
+
+// =========================================================================
+// Code Cell Execution
+// =========================================================================
+
+let lastCodeOutput = null;
+let lastCodeError = false;
+
+async function executeCode() {
+    const codeEditor = document.getElementById('code-editor');
+    const outputContainer = document.getElementById('code-output-container');
+    const output = document.getElementById('code-output');
+    const status = document.getElementById('code-status');
+    const addBtn = document.getElementById('add-code-btn');
+    
+    const code = codeEditor.value.trim();
+    if (!code) {
+        alert('Please enter some code to run.');
+        return;
+    }
+    
+    // Show loading state
+    status.textContent = '⏳ Running...';
+    status.className = 'code-status running';
+    outputContainer.style.display = 'block';
+    output.textContent = 'Executing code...';
+    output.className = 'code-output';
+    addBtn.disabled = true;
+    
+    try {
+        const response = await fetch('/entries/api/execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: code })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            status.textContent = `✓ Completed in ${result.execution_time.toFixed(2)}s`;
+            status.className = 'code-status success';
+            output.textContent = result.output || '(no output)';
+            output.className = 'code-output';
+            lastCodeOutput = result.output;
+            lastCodeError = false;
+            addBtn.disabled = false;
+        } else {
+            status.textContent = '✗ Error';
+            status.className = 'code-status error';
+            output.textContent = result.error || 'Unknown error';
+            output.className = 'code-output error';
+            lastCodeOutput = result.error;
+            lastCodeError = true;
+            addBtn.disabled = false;  // Still allow adding failed code to timeline
+        }
+    } catch (err) {
+        status.textContent = '✗ Request failed';
+        status.className = 'code-status error';
+        output.textContent = `Network error: ${err.message}`;
+        output.className = 'code-output error';
+        lastCodeOutput = `Network error: ${err.message}`;
+        lastCodeError = true;
+        addBtn.disabled = true;
+    }
+}
+
+function clearCodeOutput() {
+    const outputContainer = document.getElementById('code-output-container');
+    const output = document.getElementById('code-output');
+    const status = document.getElementById('code-status');
+    const addBtn = document.getElementById('add-code-btn');
+    
+    outputContainer.style.display = 'none';
+    output.textContent = '';
+    status.textContent = '';
+    lastCodeOutput = null;
+    lastCodeError = false;
+    addBtn.disabled = true;
+}
+
+async function addCodeToTimeline() {
+    const codeEditor = document.getElementById('code-editor');
+    const code = codeEditor.value.trim();
+    
+    if (!code) {
+        alert('No code to add.');
+        return;
+    }
+    
+    if (lastCodeOutput === null) {
+        alert('Please run the code first before adding to timeline.');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/entries/api/create/code', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                code: code,
+                output: lastCodeOutput,
+                error: lastCodeError
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            // Add to timeline dynamically
+            appendCodeEntryToTimeline(result.entry_id, code, lastCodeOutput, lastCodeError);
+            
+            // Clear the form
+            codeEditor.value = '';
+            clearCodeOutput();
+            
+            // Show success
+            alert('Code added to timeline!');
+        } else {
+            alert('Failed to add code: ' + (result.error || 'Unknown error'));
+        }
+    } catch (err) {
+        alert('Failed to add code: ' + err.message);
+    }
+}
+
+function appendCodeEntryToTimeline(entryId, code, output, isError) {
+    const timeline = document.getElementById('timeline');
+    if (!timeline) return;
+    
+    const outputClass = isError ? 'code-output error' : 'code-output';
+    const statusIcon = isError ? '❌' : '✅';
+    
+    const entryHtml = `
+        <article class="entry-card entry-type-code" id="entry-${entryId}">
+            <div class="entry-header">
+                <span class="entry-type-badge badge-code">🐍 code</span>
+                <time class="entry-timestamp">${new Date().toLocaleString()}</time>
+            </div>
+            <div class="entry-body">
+                <div class="code-cell-display">
+                    <pre class="code-input">${escapeHtml(code)}</pre>
+                    <div class="code-cell-output">
+                        <span class="code-output-label">${statusIcon} Output:</span>
+                        <pre class="${outputClass}">${escapeHtml(output || '(no output)')}</pre>
+                    </div>
+                </div>
+            </div>
+        </article>
+    `;
+    
+    timeline.insertAdjacentHTML('beforeend', entryHtml);
+    
+    const newEntry = document.getElementById(`entry-${entryId}`);
+    if (newEntry) {
+        newEntry.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+}
 
 </script>
 {% endblock %}

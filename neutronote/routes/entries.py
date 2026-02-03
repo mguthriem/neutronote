@@ -245,6 +245,146 @@ def upload_snapshot():
     return jsonify({"success": True, "filename": filename})
 
 
+@bp.route("/api/execute", methods=["POST"])
+def execute_code():
+    """
+    API: Execute Python code on the server.
+    
+    Expects JSON body with:
+        - code: Python code string to execute
+    
+    Returns:
+        - success: True/False
+        - output: stdout from execution
+        - error: error message if failed
+        - execution_time: seconds taken
+    """
+    import subprocess
+    import sys
+    import time
+    
+    data = request.get_json()
+    if not data or "code" not in data:
+        return jsonify({"error": "code required"}), 400
+    
+    code = data["code"]
+    
+    # Timeout in seconds
+    timeout = 60
+    
+    # Build the execution wrapper
+    # We'll run the code in a subprocess with the same Python environment
+    wrapper_code = f'''
+import sys
+import io
+import traceback
+
+# Redirect stdout
+_stdout = io.StringIO()
+sys.stdout = _stdout
+
+try:
+    exec(compile({repr(code)}, "<neutronote>", "exec"), {{"__name__": "__main__"}})
+except Exception as e:
+    traceback.print_exc(file=sys.stdout)
+
+# Get output
+sys.stdout = sys.__stdout__
+print(_stdout.getvalue(), end="")
+'''
+    
+    start_time = time.time()
+    
+    try:
+        # Run in subprocess with timeout
+        result = subprocess.run(
+            [sys.executable, "-c", wrapper_code],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=current_app.config.get("UPLOAD_FOLDER", "/tmp"),  # Working directory
+        )
+        
+        execution_time = time.time() - start_time
+        
+        # Combine stdout and stderr
+        output = result.stdout
+        if result.stderr:
+            output += "\n" + result.stderr if output else result.stderr
+        
+        # Check return code
+        if result.returncode != 0:
+            return jsonify({
+                "success": False,
+                "error": output or f"Process exited with code {result.returncode}",
+                "execution_time": execution_time
+            })
+        
+        return jsonify({
+            "success": True,
+            "output": output,
+            "execution_time": execution_time
+        })
+        
+    except subprocess.TimeoutExpired:
+        execution_time = time.time() - start_time
+        return jsonify({
+            "success": False,
+            "error": f"Execution timed out after {timeout} seconds",
+            "execution_time": execution_time
+        })
+    except Exception as e:
+        execution_time = time.time() - start_time
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "execution_time": execution_time
+        })
+
+
+@bp.route("/api/create/code", methods=["POST"])
+def api_create_code():
+    """
+    API: Create a code entry in the timeline.
+    
+    Expects JSON body with:
+        - code: Python code string
+        - output: execution output
+        - error: True if the output is an error
+    
+    Returns:
+        - success: True/False
+        - entry_id: ID of created entry
+    """
+    data = request.get_json()
+    if not data or "code" not in data:
+        return jsonify({"error": "code required"}), 400
+    
+    code = data["code"]
+    output = data.get("output", "")
+    is_error = data.get("error", False)
+    
+    # Store code and output as JSON in body
+    body = json.dumps({
+        "code": code,
+        "output": output,
+        "error": is_error
+    })
+    
+    entry = Entry(
+        type=Entry.TYPE_CODE,
+        title=None,
+        body=body
+    )
+    db.session.add(entry)
+    db.session.commit()
+    
+    return jsonify({
+        "success": True,
+        "entry_id": entry.id
+    })
+
+
 @bp.route("/api/create/data", methods=["POST"])
 def api_create_data():
     """

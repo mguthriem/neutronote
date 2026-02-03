@@ -1,0 +1,20 @@
+{# Code cell content partial #}
+{% set code_data = entry.body|fromjson %}
+
+<div class="code-cell-display">
+    <div class="code-input-container">
+        <div class="code-input-header">
+            <span class="code-label">Python</span>
+        </div>
+        <pre class="code-input">{{ code_data.code if code_data.code else entry.body }}</pre>
+    </div>
+    
+    {% if code_data.output is defined %}
+    <div class="code-cell-output">
+        <span class="code-output-label">
+            {% if code_data.error %}❌{% else %}✅{% endif %} Output:
+        </span>
+        <pre class="code-output{% if code_data.error %} error{% endif %}">{{ code_data.output or '(no output)' }}</pre>
+    </div>
+    {% endif %}
+</div>

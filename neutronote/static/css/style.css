@@ -1558,3 +1558,178 @@ a:hover {
     font-size: 0.8rem;
 }
 
+/* ============================================
+   Code Cell Styles
+   ============================================ */
+
+/* Code entry form */
+#code-editor-container {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+#code-editor {
+    width: 100%;
+    min-height: 200px;
+    padding: 1rem;
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    line-height: 1.5;
+    border: none;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    resize: vertical;
+}
+
+#code-editor:focus {
+    outline: none;
+}
+
+.code-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-top: 0.75rem;
+}
+
+.code-status {
+    font-size: 0.85rem;
+    margin-left: auto;
+}
+
+.code-status.running {
+    color: var(--color-primary);
+}
+
+.code-status.success {
+    color: var(--color-success);
+}
+
+.code-status.error {
+    color: #dc2626;
+}
+
+.code-output-container {
+    margin-top: 1rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.code-output-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    background: var(--color-bg);
+    border-bottom: 1px solid var(--color-border);
+    font-size: 0.85rem;
+}
+
+.btn-clear-output {
+    padding: 0.2rem 0.5rem;
+    font-size: 0.75rem;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-clear-output:hover {
+    background: var(--color-border);
+}
+
+pre.code-output {
+    margin: 0;
+    padding: 0.75rem;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    overflow-x: auto;
+    max-height: 300px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+pre.code-output.error {
+    color: #f87171;
+    background: #1e1e1e;
+}
+
+/* Code cell display in timeline */
+.code-cell-display {
+    border-radius: var(--radius);
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+}
+
+.code-input-container {
+    background: #1e1e1e;
+}
+
+.code-input-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
+    background: #2d2d2d;
+    border-bottom: 1px solid #404040;
+}
+
+.code-label {
+    font-size: 0.75rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+pre.code-input {
+    margin: 0;
+    padding: 0.75rem;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.code-cell-output {
+    background: var(--color-bg);
+    border-top: 1px solid var(--color-border);
+}
+
+.code-output-label {
+    display: block;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.code-cell-output pre.code-output {
+    background: #fafafa;
+    color: #333;
+    border-radius: 0;
+}
+
+.code-cell-output pre.code-output.error {
+    background: #fef2f2;
+    color: #991b1b;
+}
+
+/* Code entry type badge */
+.badge-code {
+    background: #8b5cf6 !important;
+    color: white !important;
+}
+
+.entry-type-code {
+    border-left-color: #8b5cf6;
+}
+
