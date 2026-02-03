@@ -81,6 +81,8 @@ dev = "lsof -ti:5000 | xargs kill -9 2>/dev/null; sleep 0.5; flask --app neutron
 test = "pytest -q tests/"
 lint = "ruff check neutronote tests"
 fmt = "black neutronote tests"
+# Run with IPTS: pixi run ipts 33219
+ipts = "python -m neutronote.app --ipts"
 
 # ---------- Tool configs ----------
 [tool.ruff]
