@@ -1,4 +1,4 @@
-{# Data entry content partial – renders plot with interactive controls #}
+{# Data entry content partial – renders snapshot image or loading placeholder #}
 {% set data = entry.body|fromjson %}
 {% set run_numbers = data.run_numbers if data.run_numbers else [data.run_number] %}
 {% set is_multi = run_numbers|length > 1 %}
@@ -27,7 +27,17 @@
     </div>
     {% endif %}
     
-    <div class="data-plot-container" 
+    {# Show static snapshot if available, otherwise show placeholder #}
+    {% if data.snapshot %}
+    <div class="data-snapshot-container">
+        <img src="{{ url_for('entries.uploaded_file', filename=data.snapshot) }}" 
+             alt="Plot snapshot for Run {{ run_numbers[0] }}"
+             class="data-snapshot-image"
+             loading="lazy">
+    </div>
+    {% else %}
+    {# Fallback for entries without snapshots - show minimal placeholder #}
+    <div class="data-plot-placeholder" 
          id="data-plot-{{ entry.id }}"
          data-run="{{ data.run_number }}"
          data-runs="{{ run_numbers|tojson }}"
@@ -36,8 +46,12 @@
          data-spectra="{{ data.selected_spectra|tojson if data.selected_spectra else '[]' }}"
          data-x-range="{{ data.x_range|tojson if data.x_range else 'null' }}"
          data-y-range="{{ data.y_range|tojson if data.y_range else 'null' }}">
-        <div class="plot-loading">Loading plot...</div>
+        <div class="placeholder-content">
+            <span class="placeholder-icon">📊</span>
+            <span class="placeholder-text">Click Expand to load plot</span>
+        </div>
     </div>
+    {% endif %}
     
     <div class="data-entry-actions">
         {% if is_multi %}

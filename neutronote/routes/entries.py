@@ -177,6 +177,74 @@ def uploaded_file(filename):
     return send_from_directory(current_app.config["UPLOAD_FOLDER"], filename)
 
 
+# =============================================================================
+# Development / Debug endpoints
+# =============================================================================
+
+
+@bp.route("/api/dev/reset-timeline", methods=["POST"])
+def api_reset_timeline():
+    """
+    DEV ONLY: Delete all entries from the timeline.
+    
+    This is a destructive operation for development/testing purposes.
+    """
+    try:
+        # Delete all entries
+        num_deleted = Entry.query.delete()
+        db.session.commit()
+        
+        return jsonify({
+            "success": True,
+            "message": f"Deleted {num_deleted} entries from timeline",
+            "deleted_count": num_deleted,
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/api/upload-snapshot", methods=["POST"])
+def upload_snapshot():
+    """
+    API: Upload a plot snapshot PNG from Plotly.toImage().
+    
+    Expects JSON body with:
+        - image_data: base64-encoded PNG data (data:image/png;base64,...)
+    
+    Returns:
+        - filename: the saved filename to include in data entry
+    """
+    import base64
+    
+    data = request.get_json()
+    if not data or "image_data" not in data:
+        return jsonify({"error": "image_data required"}), 400
+    
+    image_data = data["image_data"]
+    
+    # Parse data URL: data:image/png;base64,iVBORw0KGgo...
+    if "," in image_data:
+        header, encoded = image_data.split(",", 1)
+    else:
+        encoded = image_data
+    
+    try:
+        image_bytes = base64.b64decode(encoded)
+    except Exception as e:
+        return jsonify({"error": f"Invalid base64 data: {e}"}), 400
+    
+    # Generate unique filename
+    filename = f"snapshot_{uuid.uuid4().hex}.png"
+    upload_folder = current_app.config["UPLOAD_FOLDER"]
+    file_path = os.path.join(upload_folder, filename)
+    
+    with open(file_path, "wb") as f:
+        f.write(image_bytes)
+    
+    return jsonify({"success": True, "filename": filename})
+
+
 @bp.route("/api/create/data", methods=["POST"])
 def api_create_data():
     """
@@ -190,6 +258,7 @@ def api_create_data():
         - selected_spectra: list of int (for multi-spectrum workspaces)
         - x_range: [min, max] (optional, zoom state)
         - y_range: [min, max] (optional, zoom state)
+        - snapshot: str (optional, filename of pre-uploaded PNG snapshot)
         - title: str (optional, defaults to run title)
         - note: str (optional, user's annotation)
     """
@@ -212,6 +281,7 @@ def api_create_data():
     selected_spectra = data.get("selected_spectra", [])
     x_range = data.get("x_range")  # [min, max] or None
     y_range = data.get("y_range")  # [min, max] or None
+    snapshot = data.get("snapshot")  # PNG filename from upload-snapshot
     title = data.get("title", "").strip()
     note = data.get("note", "").strip()
     
@@ -239,6 +309,10 @@ def api_create_data():
         entry_body["x_range"] = x_range
     if y_range:
         entry_body["y_range"] = y_range
+    
+    # Include snapshot filename if provided
+    if snapshot:
+        entry_body["snapshot"] = snapshot
     
     # Generate title if not provided
     if not title:

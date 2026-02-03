@@ -200,8 +200,8 @@
                 <span id="selected-count">0</span> run(s) selected
             </div>
             <button type="button" class="btn btn-secondary" onclick="closeRunBrowser()">Cancel</button>
-            <button type="button" class="btn btn-primary" id="select-run-btn" disabled onclick="confirmRunSelection()">
-                Select Run(s)
+            <button type="button" class="btn btn-primary" id="select-run-btn" disabled onclick="confirmRunSelectionAndView()">
+                View Run(s)
             </button>
         </div>
     </div>
@@ -265,7 +265,11 @@
         </div>
         {% endif %}
         
-        <h2>Timeline</h2>
+        <div class="timeline-header">
+            <h2>Timeline</h2>
+            <!-- Dev tools - remove in production -->
+            <button type="button" class="btn btn-sm btn-danger" onclick="resetTimeline()" title="DEV: Clear all entries">🗑️ Reset</button>
+        </div>
         
         <div class="timeline" id="timeline">
             {% if entries %}
@@ -327,6 +331,34 @@ if (tabParam) {
 // Auto-scroll timeline to bottom (newest entries)
 const timeline = document.getElementById('timeline');
 timeline.scrollTop = timeline.scrollHeight;
+
+// =============================================================================
+// Dev Tools
+// =============================================================================
+
+function resetTimeline() {
+    if (!confirm('⚠️ DEV MODE: Delete ALL entries from the timeline? This cannot be undone!')) {
+        return;
+    }
+    
+    fetch('/entries/api/dev/reset-timeline', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            alert(`Deleted ${data.deleted_count} entries. Reloading page...`);
+            window.location.reload();
+        } else {
+            alert('Error: ' + (data.error || 'Failed to reset timeline'));
+        }
+    })
+    .catch(err => {
+        console.error('Reset failed:', err);
+        alert('Failed to reset timeline');
+    });
+}
 
 // =============================================================================
 // Reduced Data Selection Logic
@@ -1235,33 +1267,34 @@ function renderMultiRunPlot(data, selectedSpectra) {
                 });
             }
         } else if (runData.type === '2d') {
-            // Multi-spectrum: sum selected spectra, or all if none specified
+            // Multi-spectrum: create separate trace for each selected spectrum
             const numSpectra = runData.num_spectra;
             const indices = selectedSpectra || Array.from({length: numSpectra}, (_, i) => i);
-            const xArr = runData.x[0];
-            const ySum = xArr.map((_, i) => {
-                let sum = 0;
-                let hasValue = false;
-                for (const s of indices) {
-                    if (s < numSpectra && runData.y[s] && runData.y[s][i] !== null && !isNaN(runData.y[s][i])) {
-                        sum += runData.y[s][i];
-                        hasValue = true;
-                    }
-                }
-                return hasValue ? sum : null;
-            });
-            const filtered = filterValidPairs(xArr, ySum);
             
-            if (filtered.x.length > 0) {
-                traces.push({
-                    x: filtered.x,
-                    y: filtered.y,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: `Run ${runData.run_number}`,
-                    line: { width: 1.5, color: color },
-                });
-            }
+            // Create a trace for each spectrum
+            indices.forEach((specIdx, specOffset) => {
+                if (specIdx >= numSpectra || !runData.y[specIdx]) {
+                    return;
+                }
+                
+                // Use the x array for this spectrum (or x[0] if all x arrays are the same)
+                const xArr = Array.isArray(runData.x[specIdx]) ? runData.x[specIdx] : runData.x[0];
+                const yArr = runData.y[specIdx];
+                const filtered = filterValidPairs(xArr, yArr);
+                
+                if (filtered.x.length > 0) {
+                    // Generate unique color for each run+spectrum combo
+                    const colorIdx = (idx * indices.length + specOffset) % colors.length;
+                    traces.push({
+                        x: filtered.x,
+                        y: filtered.y,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: `Run ${runData.run_number} Spec ${specIdx + 1}`,
+                        line: { width: 1.5, color: colors[colorIdx] },
+                    });
+                }
+            });
         }
     });
     
@@ -1386,8 +1419,45 @@ if (workspaceSelect) {
     });
 }
 
+// Capture plot as PNG using Plotly.toImage
+async function captureSnapshot(plotDiv) {
+    try {
+        const imageData = await Plotly.toImage(plotDiv, {
+            format: 'png',
+            width: 800,
+            height: 400,
+            scale: 2  // Higher resolution for retina displays
+        });
+        return imageData;
+    } catch (err) {
+        console.error('Failed to capture snapshot:', err);
+        return null;
+    }
+}
+
+// Upload snapshot image to server
+async function uploadSnapshot(imageData) {
+    try {
+        const response = await fetch('/entries/api/upload-snapshot', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ image_data: imageData })
+        });
+        const result = await response.json();
+        if (result.success) {
+            return result.filename;
+        } else {
+            console.error('Snapshot upload failed:', result.error);
+            return null;
+        }
+    } catch (err) {
+        console.error('Failed to upload snapshot:', err);
+        return null;
+    }
+}
+
 // Add current plot to timeline as a data entry
-function addPlotToTimeline() {
+async function addPlotToTimeline() {
     // Check for runs - support both single and multi-run
     const runNumbers = currentRunNumbers.length > 0 ? currentRunNumbers : (currentRunNumber ? [currentRunNumber] : []);
     
@@ -1438,8 +1508,21 @@ function addPlotToTimeline() {
     
     const btn = document.getElementById('add-to-timeline-btn');
     const originalText = btn.textContent;
-    btn.textContent = 'Saving...';
+    btn.textContent = 'Capturing...';
     btn.disabled = true;
+    
+    // Capture and upload snapshot
+    let snapshotFilename = null;
+    if (plotDiv) {
+        btn.textContent = 'Capturing snapshot...';
+        const imageData = await captureSnapshot(plotDiv);
+        if (imageData) {
+            btn.textContent = 'Uploading snapshot...';
+            snapshotFilename = await uploadSnapshot(imageData);
+        }
+    }
+    
+    btn.textContent = 'Saving...';
     
     // Build request body - support both single and multi-run
     const requestBody = {
@@ -1450,6 +1533,11 @@ function addPlotToTimeline() {
         y_range: yRange,
         note: note || '',
     };
+    
+    // Include snapshot filename if captured
+    if (snapshotFilename) {
+        requestBody.snapshot = snapshotFilename;
+    }
     
     if (runNumbers.length === 1) {
         requestBody.run_number = runNumbers[0];
@@ -1468,8 +1556,8 @@ function addPlotToTimeline() {
             // Close modal and dynamically add entry to timeline instead of full reload
             closePlotViewer();
             
-            // Fetch and append the new entry HTML
-            fetchAndAppendNewEntry(data.entry_id, runNumbers, currentStateId, workspace, selectedSpectra, xRange, yRange);
+            // Fetch and append the new entry HTML with snapshot
+            fetchAndAppendNewEntry(data.entry_id, runNumbers, currentStateId, workspace, selectedSpectra, xRange, yRange, snapshotFilename, note);
             
             btn.textContent = originalText;
             btn.disabled = false;
@@ -1488,7 +1576,7 @@ function addPlotToTimeline() {
 }
 
 // Dynamically add new entry to timeline without full reload
-function fetchAndAppendNewEntry(entryId, runNumbers, stateId, workspace, selectedSpectra, xRange, yRange) {
+function fetchAndAppendNewEntry(entryId, runNumbers, stateId, workspace, selectedSpectra, xRange, yRange, snapshotFilename, note) {
     // Create a simple entry card for the new data entry
     const timeline = document.getElementById('timeline');
     if (!timeline) return;
@@ -1499,12 +1587,6 @@ function fetchAndAppendNewEntry(entryId, runNumbers, stateId, workspace, selecte
           + (runNumbers.length > 5 ? `<span class="data-run-badge">+${runNumbers.length - 5} more</span>` : '')
         : `<span class="data-run-badge">Run ${runNumbers[0]}</span>`;
     
-    // Escape JSON for use in HTML attributes
-    const runsJson = JSON.stringify(runNumbers).replace(/"/g, '&quot;');
-    const spectraJson = JSON.stringify(selectedSpectra).replace(/"/g, '&quot;');
-    const xRangeJson = xRange ? JSON.stringify(xRange).replace(/"/g, '&quot;') : 'null';
-    const yRangeJson = yRange ? JSON.stringify(yRange).replace(/"/g, '&quot;') : 'null';
-    
     // Build onclick handler - needs careful escaping
     let onclickHandler;
     if (isMulti) {
@@ -1512,6 +1594,31 @@ function fetchAndAppendNewEntry(entryId, runNumbers, stateId, workspace, selecte
     } else {
         onclickHandler = `openPlotViewerForEntry(${runNumbers[0]}, '${stateId}', '${workspace}', ${xRange ? '[' + xRange.join(',') + ']' : 'null'}, ${yRange ? '[' + yRange.join(',') + ']' : 'null'})`;
     }
+    
+    // Build the plot display: snapshot image if available, otherwise placeholder
+    let plotDisplay;
+    if (snapshotFilename) {
+        plotDisplay = `
+            <div class="data-snapshot-container">
+                <img src="/entries/uploads/${snapshotFilename}" 
+                     alt="Plot snapshot for Run ${runNumbers[0]}"
+                     class="data-snapshot-image"
+                     loading="lazy">
+            </div>
+        `;
+    } else {
+        plotDisplay = `
+            <div class="data-plot-placeholder">
+                <div class="placeholder-content">
+                    <span class="placeholder-icon">📊</span>
+                    <span class="placeholder-text">Click Expand to load plot</span>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Build note display if provided
+    const noteHtml = note ? `<div class="data-note">${escapeHtml(note)}</div>` : '';
     
     const entryHtml = `
         <article class="entry-card entry-type-data" id="entry-${entryId}">
@@ -1526,17 +1633,8 @@ function fetchAndAppendNewEntry(entryId, runNumbers, stateId, workspace, selecte
                         ${runBadges}
                         <span class="data-workspace-badge">${workspace}</span>
                     </div>
-                    <div class="data-plot-container" 
-                         id="data-plot-${entryId}"
-                         data-run="${runNumbers[0]}"
-                         data-runs="${runsJson}"
-                         data-state="${stateId}"
-                         data-workspace="${workspace}"
-                         data-spectra="${spectraJson}"
-                         data-x-range="${xRangeJson}"
-                         data-y-range="${yRangeJson}">
-                        <div class="plot-loading">Loading plot...</div>
-                    </div>
+                    ${noteHtml}
+                    ${plotDisplay}
                     <div class="data-entry-actions">
                         <button type="button" class="btn btn-sm btn-secondary" 
                                 onclick="${onclickHandler}">
@@ -1556,12 +1654,13 @@ function fetchAndAppendNewEntry(entryId, runNumbers, stateId, workspace, selecte
     if (newEntry) {
         newEntry.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
-    
-    // Render the plot using cached data if available
-    const plotContainer = document.getElementById(`data-plot-${entryId}`);
-    if (plotContainer) {
-        renderTimelinePlotWithCache(plotContainer, runNumbers, stateId, workspace, selectedSpectra, xRange, yRange);
-    }
+}
+
+// Helper function to escape HTML in user input
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // Close plot viewer modal on backdrop click
@@ -1849,13 +1948,13 @@ function renderTimelinePlotFromData(container, data, runNumbers, selectedSpectra
     }
 }
 
-// Initialize all timeline plots on page load
+// Initialize timeline on page load
+// Note: Data entries with snapshots show static images - no data loading needed
+// Only entries without snapshots (legacy or failed capture) have placeholder divs
 document.addEventListener('DOMContentLoaded', function() {
-    const plotContainers = document.querySelectorAll('.data-plot-container');
-    plotContainers.forEach(container => {
-        // Small delay to stagger loading and avoid overwhelming the server
-        setTimeout(() => renderTimelinePlot(container), Math.random() * 500);
-    });
+    // No automatic data loading - snapshots are shown as static images
+    // The "Expand" button will load interactive data when clicked
+    console.log('Timeline loaded. Data entries show static snapshots.');
 });
 
 </script>
