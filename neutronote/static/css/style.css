@@ -113,11 +113,13 @@ a:hover {
 /* Left panel: Create Entry */
 .create-panel {
     width: 380px;
-    min-width: 320px;
+    min-width: 280px;
+    max-width: 60%;
     padding: 1.5rem;
     background: var(--color-surface);
-    border-right: 1px solid var(--color-border);
+    border-right: none;
     overflow-y: auto;
+    flex-shrink: 0;
 }
 
 .create-panel h2 {
@@ -126,6 +128,38 @@ a:hover {
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin-bottom: 1rem;
+}
+
+/* Resizer handle between panels */
+.panel-resizer {
+    width: 6px;
+    background: var(--color-border);
+    cursor: col-resize;
+    flex-shrink: 0;
+    position: relative;
+    transition: background 0.15s;
+}
+
+.panel-resizer:hover,
+.panel-resizer.dragging {
+    background: var(--color-primary);
+}
+
+.panel-resizer::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 2px;
+    height: 30px;
+    background: rgba(0,0,0,0.2);
+    border-radius: 1px;
+}
+
+.panel-resizer:hover::after,
+.panel-resizer.dragging::after {
+    background: rgba(255,255,255,0.5);
 }
 
 /* Right panel: Timeline */
@@ -683,6 +717,17 @@ a:hover {
 .btn-danger:hover {
     background: #b91c1c;
     border-color: #b91c1c;
+}
+
+.btn-outline {
+    background: transparent;
+    color: var(--color-text-muted);
+    border: 1px solid var(--color-border);
+}
+
+.btn-outline:hover {
+    background: var(--color-bg);
+    color: var(--color-text);
 }
 
 /* Timeline header with title and dev tools */
@@ -1627,6 +1672,25 @@ a:hover {
     font-size: 0.85rem;
 }
 
+.code-output-header-left {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.btn-expand-output {
+    padding: 0.2rem 0.5rem;
+    font-size: 0.75rem;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-expand-output:hover {
+    background: var(--color-border);
+}
+
 .btn-clear-output {
     padding: 0.2rem 0.5rem;
     font-size: 0.75rem;
@@ -1649,9 +1713,16 @@ pre.code-output {
     font-size: 0.85rem;
     line-height: 1.5;
     overflow-x: auto;
-    max-height: 300px;
+    overflow-y: auto;
+    min-height: 60px;
+    max-height: 200px;
     white-space: pre-wrap;
     word-break: break-word;
+    resize: vertical;
+}
+
+pre.code-output.expanded {
+    max-height: 500px;
 }
 
 pre.code-output.error {
@@ -1865,6 +1936,64 @@ pre.code-input {
     margin-bottom: 0.75rem;
 }
 
+/* Variables Section */
+.variables-section {
+    border-top: 1px solid var(--color-border);
+    padding-top: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.variables-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+}
+
+.variable-count {
+    color: var(--color-text-muted);
+    font-weight: normal;
+}
+
+.variables-list {
+    max-height: 120px;
+    overflow-y: auto;
+}
+
+.variable-empty {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    font-style: italic;
+    padding: 0.25rem 0;
+}
+
+.variable-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.2rem 0.25rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+    border-radius: 3px;
+}
+
+.variable-item:hover {
+    background: var(--color-bg);
+}
+
+.variable-name {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    color: #8b5cf6;
+}
+
+.variable-type {
+    color: var(--color-text-muted);
+    font-size: 0.7rem;
+}
+
 /* Workspaces Section */
 .workspaces-section {
     border-top: 1px solid var(--color-border);
@@ -1904,7 +2033,6 @@ pre.code-input {
     gap: 0.5rem;
     padding: 0.4rem 0.5rem;
     border-radius: 4px;
-    cursor: pointer;
     font-size: 0.8rem;
 }
 
@@ -1920,6 +2048,12 @@ pre.code-input {
     font-family: var(--font-mono);
     font-weight: 500;
     flex-shrink: 0;
+    cursor: pointer;
+}
+
+.workspace-name:hover {
+    text-decoration: underline;
+    color: var(--color-primary);
 }
 
 .workspace-info {
@@ -1928,4 +2062,21 @@ pre.code-input {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    flex: 1;
+}
+
+.workspace-delete-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.2rem;
+    font-size: 0.75rem;
+    opacity: 0.4;
+    transition: opacity 0.2s;
+    margin-left: auto;
+}
+
+.workspace-delete-btn:hover {
+    opacity: 1;
+    color: var(--color-danger);
 }

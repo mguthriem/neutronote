@@ -151,84 +151,115 @@ print('Hello from neutroNote!')"></textarea>
                 <small class="form-hint">Persistent kernel with mantid/snapwrap. Variables survive across runs.</small>
             </div>
             <div class="code-actions">
-                <button type="button" class="btn btn-primary" onclick="executeCode()">
+                <button type="button" class="btn btn-primary" onclick="executeCode()" id="run-code-btn">
                     ▶ Run Code
                 </button>
                 <button type="button" class="btn btn-secondary" onclick="addCodeToTimeline()" id="add-code-btn" disabled>
                     📝 Add to Timeline
                 </button>
+                <button type="button" class="btn btn-outline" onclick="resetCodeCell()" title="Reset code cell state">
+                    🔄 Reset
+                </button>
                 <span class="code-status" id="code-status"></span>
             </div>
             <div id="code-output-container" class="code-output-container" style="display: none;">
                 <div class="code-output-header">
-                    <strong>Output</strong>
+                    <div class="code-output-header-left">
+                        <strong>Output</strong>
+                        <button type="button" class="btn-expand-output" onclick="toggleOutputExpand()" id="expand-output-btn">⤢ Expand</button>
+                    </div>
                     <button type="button" class="btn-clear-output" onclick="clearCodeOutput()">Clear</button>
                 </div>
                 <pre id="code-output" class="code-output"></pre>
             </div>
-            
-            <!-- Kernel Status Panel -->
-            <div class="kernel-panel">
-                <div class="kernel-panel-header" onclick="toggleKernelPanel()">
-                    <span class="kernel-panel-title">
-                        <span class="kernel-indicator" id="kernel-indicator">●</span>
-                        Kernel Status
-                    </span>
-                    <span class="kernel-panel-toggle" id="kernel-panel-toggle">▼</span>
+        </form>
+        
+        <!-- Kernel Status Panel (always visible) -->
+        <div class="kernel-panel">
+            <div class="kernel-panel-header" onclick="toggleKernelPanel()">
+                <span class="kernel-panel-title">
+                    <span class="kernel-indicator" id="kernel-indicator">●</span>
+                    Kernel & Workspaces
+                </span>
+                <span class="kernel-panel-toggle" id="kernel-panel-toggle">▼</span>
+            </div>
+            <div class="kernel-panel-content" id="kernel-panel-content">
+                <!-- Memory Bars -->
+                <div class="memory-section">
+                    <div class="memory-bar-container">
+                        <div class="memory-bar-label">
+                            <span>System RAM</span>
+                            <span id="system-ram-text">-- %</span>
+                        </div>
+                        <div class="memory-bar">
+                            <div class="memory-bar-fill" id="system-ram-bar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="memory-bar-container">
+                        <div class="memory-bar-label">
+                            <span>Mantid ADS</span>
+                            <span id="mantid-ram-text">-- %</span>
+                        </div>
+                        <div class="memory-bar">
+                            <div class="memory-bar-fill mantid" id="mantid-ram-bar" style="width: 0%"></div>
+                        </div>
+                    </div>
                 </div>
-                <div class="kernel-panel-content" id="kernel-panel-content">
-                    <!-- Memory Bars -->
-                    <div class="memory-section">
-                        <div class="memory-bar-container">
-                            <div class="memory-bar-label">
-                                <span>System RAM</span>
-                                <span id="system-ram-text">-- %</span>
-                            </div>
-                            <div class="memory-bar">
-                                <div class="memory-bar-fill" id="system-ram-bar" style="width: 0%"></div>
-                            </div>
-                        </div>
-                        <div class="memory-bar-container">
-                            <div class="memory-bar-label">
-                                <span>Mantid ADS</span>
-                                <span id="mantid-ram-text">-- %</span>
-                            </div>
-                            <div class="memory-bar">
-                                <div class="memory-bar-fill mantid" id="mantid-ram-bar" style="width: 0%"></div>
-                            </div>
-                        </div>
+                
+                <!-- Kernel Info -->
+                <div class="kernel-info">
+                    <span id="kernel-status-text">Kernel: checking...</span>
+                    <span id="kernel-executions">0 executions</span>
+                </div>
+                
+                <!-- Kernel Actions -->
+                <div class="kernel-actions">
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="refreshKernelStatus()">
+                        🔄 Refresh
+                    </button>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="restartKernel()">
+                        ⟳ Restart Kernel
+                    </button>
+                </div>
+                
+                <!-- Variables -->
+                <div class="variables-section">
+                    <div class="variables-header">
+                        <span>📋 Variables</span>
+                        <span class="variable-count" id="variable-count">(0)</span>
                     </div>
-                    
-                    <!-- Kernel Info -->
-                    <div class="kernel-info">
-                        <span id="kernel-status-text">Kernel: checking...</span>
-                        <span id="kernel-executions">0 executions</span>
+                    <div class="variables-list" id="variables-list">
+                        <div class="variable-empty">No variables defined</div>
                     </div>
-                    
-                    <!-- Kernel Actions -->
-                    <div class="kernel-actions">
-                        <button type="button" class="btn btn-sm btn-secondary" onclick="refreshKernelStatus()">
-                            🔄 Refresh
-                        </button>
-                        <button type="button" class="btn btn-sm btn-danger" onclick="restartKernel()">
-                            ⟳ Restart Kernel
-                        </button>
+                </div>
+                
+                <!-- Workspaces -->
+                <div class="workspaces-section">
+                    <div class="workspaces-header">
+                        <span>📦 Workspaces</span>
+                        <span class="workspace-count" id="workspace-count">(0)</span>
                     </div>
-                    
-                    <!-- Workspaces -->
-                    <div class="workspaces-section">
-                        <div class="workspaces-header">
-                            <span>📦 Workspaces</span>
-                            <span class="workspace-count" id="workspace-count">(0)</span>
-                        </div>
-                        <div class="workspaces-list" id="workspaces-list">
-                            <div class="workspace-empty">No workspaces loaded</div>
-                        </div>
+                    <div class="workspaces-list" id="workspaces-list">
+                        <div class="workspace-empty">No workspaces loaded</div>
                     </div>
                 </div>
             </div>
-        </form>
+        </div>
     </aside>
+
+<!-- Workspace Context Menu -->
+<div id="workspace-context-menu" class="context-menu" style="display: none;">
+    <div class="context-menu-item" onclick="workspaceAction('insert')">
+        <span class="context-menu-icon">📝</span> Insert name
+    </div>
+    <div class="context-menu-item" onclick="workspaceAction('info')">
+        <span class="context-menu-icon">ℹ️</span> Show info
+    </div>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item danger" onclick="workspaceAction('delete')">
+        <span class="context-menu-icon">🗑️</span> Delete workspace
+    </div>
+</div>
 
 <!-- Run Browser Modal -->
 <div id="run-browser-modal" class="modal-overlay" style="display: none;">
@@ -339,8 +370,11 @@ print('Hello from neutroNote!')"></textarea>
     </div>
 </div>
 
+    <!-- Resizable Panel Divider -->
+    <div class="panel-resizer" id="panel-resizer"></div>
+
     <!-- RIGHT PANEL: Timeline -->
-    <section class="timeline-panel">
+    <section class="timeline-panel" id="timeline-panel">
         <!-- Notebook IPTS banner -->
         {% if config.is_configured %}
         <div class="notebook-info">
@@ -2109,6 +2143,23 @@ async function executeCode() {
     }
 }
 
+let outputExpanded = false;
+
+function toggleOutputExpand() {
+    const output = document.getElementById('code-output');
+    const btn = document.getElementById('expand-output-btn');
+    
+    outputExpanded = !outputExpanded;
+    
+    if (outputExpanded) {
+        output.classList.add('expanded');
+        btn.textContent = '⤡ Collapse';
+    } else {
+        output.classList.remove('expanded');
+        btn.textContent = '⤢ Expand';
+    }
+}
+
 function clearCodeOutput() {
     const outputContainer = document.getElementById('code-output-container');
     const output = document.getElementById('code-output');
@@ -2117,10 +2168,43 @@ function clearCodeOutput() {
     
     outputContainer.style.display = 'none';
     output.textContent = '';
+    output.classList.remove('expanded');
     status.textContent = '';
     lastCodeOutput = null;
     lastCodeError = false;
     addBtn.disabled = true;
+    outputExpanded = false;
+    
+    const expandBtn = document.getElementById('expand-output-btn');
+    if (expandBtn) expandBtn.textContent = '⤢ Expand';
+}
+
+function resetCodeCell() {
+    // Reset all code cell state - useful when things get stuck
+    const outputContainer = document.getElementById('code-output-container');
+    const output = document.getElementById('code-output');
+    const status = document.getElementById('code-status');
+    const addBtn = document.getElementById('add-code-btn');
+    const runBtn = document.getElementById('run-code-btn');
+    
+    // Reset output
+    outputContainer.style.display = 'none';
+    output.textContent = '';
+    output.className = 'code-output';
+    
+    // Reset status
+    status.textContent = '';
+    status.className = 'code-status';
+    
+    // Reset buttons
+    addBtn.disabled = true;
+    if (runBtn) runBtn.disabled = false;
+    
+    // Reset tracking vars
+    lastCodeOutput = null;
+    lastCodeError = false;
+    
+    console.log('Code cell reset');
 }
 
 async function addCodeToTimeline() {
@@ -2229,12 +2313,33 @@ async function refreshKernelStatus() {
         updateKernelIndicator(data.status);
         updateMemoryBars(data.memory);
         updateKernelInfo(data.status);
+        updateVariables(data.variables || []);
         
         // Also refresh workspaces
         await refreshWorkspaces();
     } catch (err) {
         console.error('Failed to refresh kernel status:', err);
         updateKernelIndicator({ state: 'dead' });
+    }
+}
+
+function updateVariables(variables) {
+    const list = document.getElementById('variables-list');
+    const count = document.getElementById('variable-count');
+    
+    if (!list || !count) return;
+    
+    count.textContent = `(${variables.length})`;
+    
+    if (variables.length === 0) {
+        list.innerHTML = '<div class="variable-empty">No variables defined</div>';
+    } else {
+        list.innerHTML = variables.map(v => `
+            <div class="variable-item" onclick="insertWorkspaceName('${v.name}')" title="Click to insert name">
+                <span class="variable-name">${v.name}</span>
+                <span class="variable-type">${v.type}</span>
+            </div>
+        `).join('');
     }
 }
 
@@ -2307,15 +2412,45 @@ async function refreshWorkspaces() {
             list.innerHTML = '<div class="workspace-empty">No workspaces loaded</div>';
         } else {
             list.innerHTML = data.workspaces.map(ws => `
-                <div class="workspace-item" onclick="insertWorkspaceName('${ws.name}')" title="Click to insert name">
+                <div class="workspace-item" title="Click to insert name">
                     <span class="workspace-icon">📦</span>
-                    <span class="workspace-name">${ws.name}</span>
+                    <span class="workspace-name" onclick="insertWorkspaceName('${ws.name}')">${ws.name}</span>
                     <span class="workspace-info">${ws.type} · ${ws.num_spectra} spec · ${ws.memory_mb.toFixed(1)} MB</span>
+                    <button class="workspace-delete-btn" onclick="deleteWorkspace('${ws.name}', event)" title="Delete workspace">🗑️</button>
                 </div>
             `).join('');
         }
     } catch (err) {
         console.error('Failed to refresh workspaces:', err);
+    }
+}
+
+async function deleteWorkspace(name, event) {
+    // Stop propagation so we don't trigger the parent click
+    if (event) {
+        event.stopPropagation();
+    }
+    
+    if (!confirm(`Delete workspace "${name}"? This cannot be undone.`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/entries/api/kernel/workspaces/${encodeURIComponent(name)}`, {
+            method: 'DELETE'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            console.log(`Deleted workspace: ${name}`);
+            // Refresh the workspace list and status
+            await refreshKernelStatus();
+        } else {
+            alert(`Failed to delete workspace: ${data.message}`);
+        }
+    } catch (err) {
+        console.error('Failed to delete workspace:', err);
+        alert('Failed to delete workspace. See console for details.');
     }
 }
 
@@ -2357,14 +2492,31 @@ async function restartKernel() {
 // Update kernel status after code execution
 const originalExecuteCode = executeCode;
 executeCode = async function() {
-    await originalExecuteCode();
+    try {
+        await originalExecuteCode();
+    } catch (err) {
+        console.error('Code execution failed:', err);
+        // Reset UI state on error
+        const status = document.getElementById('code-status');
+        if (status) {
+            status.textContent = '✗ Error';
+            status.className = 'code-status error';
+        }
+    }
     // Refresh status after execution (with slight delay for kernel to update)
-    setTimeout(refreshKernelStatus, 500);
+    try {
+        setTimeout(refreshKernelStatus, 500);
+    } catch (e) {
+        console.error('Failed to refresh kernel status:', e);
+    }
 };
 
-// Initialize kernel panel when Code tab is shown
+// Initialize kernel panel on page load
 document.addEventListener('DOMContentLoaded', function() {
-    // Initial refresh when page loads (if Code tab is active or when it becomes active)
+    // Always refresh kernel status on page load
+    setTimeout(refreshKernelStatus, 200);
+    
+    // Also refresh when Code tab is clicked
     const codeTab = document.querySelector('.tab[data-type="code"]');
     if (codeTab) {
         codeTab.addEventListener('click', function() {
@@ -2372,6 +2524,66 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+
+// =========================================================================
+// Panel Resizer
+// =========================================================================
+
+(function() {
+    const resizer = document.getElementById('panel-resizer');
+    const createPanel = document.querySelector('.create-panel');
+    
+    if (!resizer || !createPanel) return;
+    
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 0;
+    
+    resizer.addEventListener('mousedown', function(e) {
+        isResizing = true;
+        startX = e.clientX;
+        startWidth = createPanel.offsetWidth;
+        
+        resizer.classList.add('dragging');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        
+        e.preventDefault();
+    });
+    
+    document.addEventListener('mousemove', function(e) {
+        if (!isResizing) return;
+        
+        const diff = e.clientX - startX;
+        const newWidth = startWidth + diff;
+        
+        // Respect min/max constraints
+        const minWidth = 280;
+        const maxWidth = window.innerWidth * 0.6;
+        
+        if (newWidth >= minWidth && newWidth <= maxWidth) {
+            createPanel.style.width = newWidth + 'px';
+        }
+    });
+    
+    document.addEventListener('mouseup', function() {
+        if (isResizing) {
+            isResizing = false;
+            resizer.classList.remove('dragging');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            
+            // Save preference to localStorage
+            localStorage.setItem('neutronote-panel-width', createPanel.style.width);
+        }
+    });
+    
+    // Restore saved width on page load
+    const savedWidth = localStorage.getItem('neutronote-panel-width');
+    if (savedWidth) {
+        createPanel.style.width = savedWidth;
+    }
+})();
 
 </script>
 {% endblock %}

@@ -63,8 +63,8 @@ snapred = ">2.0.0"
 
 [tool.pixi.pypi-dependencies]
 gunicorn = ">=21.0"
-# snapwrap installed from local path for development
-snapwrap = { path = "/SNS/SNAP/shared/Malcolm/code/forks/SNAPWrap", editable = true }
+# snapwrap pinned to release candidate v2.2.0rc2
+snapwrap = { git = "https://github.com/neutrons/SNAPWrap.git", tag = "v2.2.0rc2" }
 
 [tool.pixi.feature.dev.dependencies]
 pytest = ">=8.0"

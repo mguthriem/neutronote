@@ -226,6 +226,18 @@ def get_mantid_memory_mb():
     
     return total
 
+def get_namespace_vars():
+    """Get list of user-defined variables in the namespace."""
+    # Filter out private vars and built-in types
+    vars_list = []
+    for name, val in _user_namespace.items():
+        if not name.startswith('_'):
+            vars_list.append({
+                'name': name,
+                'type': type(val).__name__,
+            })
+    return vars_list
+
 def execute_code(code):
     """Execute code and return result."""
     stdout_capture = io.StringIO()
@@ -272,9 +284,27 @@ while True:
             workspaces = get_workspace_info()
             print(json.dumps({'type': 'workspaces', 'workspaces': workspaces}), flush=True)
         
+        elif action == 'variables':
+            variables = get_namespace_vars()
+            print(json.dumps({'type': 'variables', 'variables': variables}), flush=True)
+        
         elif action == 'memory':
             memory_mb = get_mantid_memory_mb()
             print(json.dumps({'type': 'memory', 'mantid_mb': memory_mb}), flush=True)
+        
+        elif action == 'delete_workspace':
+            ws_name = cmd.get('name', '')
+            if MANTID_AVAILABLE and ADS is not None and ws_name:
+                try:
+                    if ADS.doesExist(ws_name):
+                        ADS.remove(ws_name)
+                        print(json.dumps({'type': 'deleted', 'name': ws_name, 'success': True}), flush=True)
+                    else:
+                        print(json.dumps({'type': 'deleted', 'name': ws_name, 'success': False, 'error': 'Workspace not found'}), flush=True)
+                except Exception as e:
+                    print(json.dumps({'type': 'deleted', 'name': ws_name, 'success': False, 'error': str(e)}), flush=True)
+            else:
+                print(json.dumps({'type': 'deleted', 'name': ws_name, 'success': False, 'error': 'Mantid not available or no name provided'}), flush=True)
         
         elif action == 'ping':
             print(json.dumps({'type': 'pong'}), flush=True)
@@ -432,6 +462,41 @@ while True:
             ))
         
         return workspaces
+    
+    def get_variables(self) -> list[dict]:
+        """Get list of user-defined variables in the kernel namespace."""
+        if not self.is_alive():
+            return []
+        
+        result = self._send_command({'action': 'variables'})
+        if result is None:
+            return []
+        
+        return result.get('variables', [])
+    
+    def delete_workspace(self, name: str) -> tuple[bool, str]:
+        """
+        Delete a workspace from the kernel's ADS.
+        
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        if not self.is_alive():
+            return False, "Kernel is not running"
+        
+        if not name:
+            return False, "Workspace name is required"
+        
+        result = self._send_command({'action': 'delete_workspace', 'name': name})
+        if result is None:
+            return False, "Failed to communicate with kernel"
+        
+        success = result.get('success', False)
+        if success:
+            return True, f"Workspace '{name}' deleted"
+        else:
+            error = result.get('error', 'Unknown error')
+            return False, error
     
     def get_memory_info(self) -> MemoryInfo:
         """Get memory usage information."""

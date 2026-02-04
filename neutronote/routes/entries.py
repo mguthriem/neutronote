@@ -290,10 +290,13 @@ def kernel_status():
     kernel = get_kernel_manager()
     status = kernel.get_status()
     memory = kernel.get_memory_info()
+    variables = kernel.get_variables()
     
     return jsonify({
         "status": status.to_dict(),
         "memory": memory.to_dict(),
+        "variables": variables,
+        "variable_count": len(variables),
     })
 
 
@@ -319,6 +322,19 @@ def kernel_restart():
         "success": success,
         "message": "Kernel restarted" if success else "Failed to restart kernel",
     })
+
+
+@bp.route("/api/kernel/workspaces/<name>", methods=["DELETE"])
+def kernel_delete_workspace(name):
+    """API: Delete a workspace from the kernel."""
+    kernel = get_kernel_manager()
+    success, message = kernel.delete_workspace(name)
+    
+    return jsonify({
+        "success": success,
+        "message": message,
+        "name": name,
+    }), 200 if success else 400
 
 
 @bp.route("/api/create/code", methods=["POST"])
