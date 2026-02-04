@@ -71,6 +71,18 @@ a:hover {
 .app-title {
     font-size: 1.25rem;
     font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.ipts-badge {
+    font-size: 0.85rem;
+    font-weight: 500;
+    background: var(--color-primary);
+    color: white;
+    padding: 0.2em 0.6em;
+    border-radius: 4px;
 }
 
 .app-nav a {
@@ -101,11 +113,13 @@ a:hover {
 /* Left panel: Create Entry */
 .create-panel {
     width: 380px;
-    min-width: 320px;
+    min-width: 280px;
+    max-width: 60%;
     padding: 1.5rem;
     background: var(--color-surface);
-    border-right: 1px solid var(--color-border);
+    border-right: none;
     overflow-y: auto;
+    flex-shrink: 0;
 }
 
 .create-panel h2 {
@@ -114,6 +128,38 @@ a:hover {
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin-bottom: 1rem;
+}
+
+/* Resizer handle between panels */
+.panel-resizer {
+    width: 6px;
+    background: var(--color-border);
+    cursor: col-resize;
+    flex-shrink: 0;
+    position: relative;
+    transition: background 0.15s;
+}
+
+.panel-resizer:hover,
+.panel-resizer.dragging {
+    background: var(--color-primary);
+}
+
+.panel-resizer::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 2px;
+    height: 30px;
+    background: rgba(0,0,0,0.2);
+    border-radius: 1px;
+}
+
+.panel-resizer:hover::after,
+.panel-resizer.dragging::after {
+    background: rgba(255,255,255,0.5);
 }
 
 /* Right panel: Timeline */
@@ -671,6 +717,17 @@ a:hover {
 .btn-danger:hover {
     background: #b91c1c;
     border-color: #b91c1c;
+}
+
+.btn-outline {
+    background: transparent;
+    color: var(--color-text-muted);
+    border: 1px solid var(--color-border);
+}
+
+.btn-outline:hover {
+    background: var(--color-bg);
+    color: var(--color-text);
 }
 
 /* Timeline header with title and dev tools */
@@ -1546,3 +1603,480 @@ a:hover {
     font-size: 0.8rem;
 }
 
+/* ============================================
+   Code Cell Styles
+   ============================================ */
+
+/* Code entry form */
+#code-editor-container {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+#code-editor {
+    width: 100%;
+    min-height: 200px;
+    padding: 1rem;
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    line-height: 1.5;
+    border: none;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    resize: vertical;
+}
+
+#code-editor:focus {
+    outline: none;
+}
+
+.code-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-top: 0.75rem;
+}
+
+.code-status {
+    font-size: 0.85rem;
+    margin-left: auto;
+}
+
+.code-status.running {
+    color: var(--color-primary);
+}
+
+.code-status.success {
+    color: var(--color-success);
+}
+
+.code-status.error {
+    color: #dc2626;
+}
+
+.code-output-container {
+    margin-top: 1rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.code-output-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    background: var(--color-bg);
+    border-bottom: 1px solid var(--color-border);
+    font-size: 0.85rem;
+}
+
+.code-output-header-left {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.btn-expand-output {
+    padding: 0.2rem 0.5rem;
+    font-size: 0.75rem;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-expand-output:hover {
+    background: var(--color-border);
+}
+
+.btn-clear-output {
+    padding: 0.2rem 0.5rem;
+    font-size: 0.75rem;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-clear-output:hover {
+    background: var(--color-border);
+}
+
+pre.code-output {
+    margin: 0;
+    padding: 0.75rem;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    overflow-x: auto;
+    overflow-y: auto;
+    min-height: 60px;
+    max-height: 200px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    resize: vertical;
+}
+
+pre.code-output.expanded {
+    max-height: 500px;
+}
+
+pre.code-output.error {
+    color: #f87171;
+    background: #1e1e1e;
+}
+
+/* Code cell display in timeline */
+.code-cell-display {
+    border-radius: var(--radius);
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+}
+
+.code-input-container {
+    background: #1e1e1e;
+}
+
+.code-input-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
+    background: #2d2d2d;
+    border-bottom: 1px solid #404040;
+}
+
+.code-label {
+    font-size: 0.75rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+pre.code-input {
+    margin: 0;
+    padding: 0.75rem;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.code-cell-output {
+    background: var(--color-bg);
+    border-top: 1px solid var(--color-border);
+}
+
+.code-output-label {
+    display: block;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.code-cell-output pre.code-output {
+    background: #fafafa;
+    color: #333;
+    border-radius: 0;
+}
+
+.code-cell-output pre.code-output.error {
+    background: #fef2f2;
+    color: #991b1b;
+}
+
+/* Code entry type badge */
+.badge-code {
+    background: #8b5cf6 !important;
+    color: white !important;
+}
+
+.entry-type-code {
+    border-left-color: #8b5cf6;
+}
+
+/* ============================================
+   Kernel Panel Styles
+   ============================================ */
+
+.kernel-panel {
+    margin-top: 1rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    overflow: hidden;
+}
+
+.kernel-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    background: var(--color-bg);
+    cursor: pointer;
+    user-select: none;
+}
+
+.kernel-panel-header:hover {
+    background: #e5e7eb;
+}
+
+.kernel-panel-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 500;
+    font-size: 0.9rem;
+}
+
+.kernel-panel-toggle {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+}
+
+.kernel-indicator {
+    font-size: 0.75rem;
+}
+
+.kernel-indicator.idle {
+    color: var(--color-success);
+}
+
+.kernel-indicator.busy {
+    color: var(--color-warning);
+    animation: pulse 1s infinite;
+}
+
+.kernel-indicator.starting {
+    color: var(--color-primary);
+    animation: pulse 0.5s infinite;
+}
+
+.kernel-indicator.dead {
+    color: #dc2626;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+.kernel-panel-content {
+    padding: 0.75rem;
+    border-top: 1px solid var(--color-border);
+}
+
+/* Memory Bars */
+.memory-section {
+    margin-bottom: 0.75rem;
+}
+
+.memory-bar-container {
+    margin-bottom: 0.5rem;
+}
+
+.memory-bar-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin-bottom: 0.25rem;
+}
+
+.memory-bar {
+    height: 8px;
+    background: #e5e7eb;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.memory-bar-fill {
+    height: 100%;
+    background: var(--color-success);
+    border-radius: 4px;
+    transition: width 0.3s ease, background 0.3s ease;
+}
+
+.memory-bar-fill.warning {
+    background: var(--color-warning);
+}
+
+.memory-bar-fill.critical {
+    background: #dc2626;
+}
+
+.memory-bar-fill.mantid {
+    background: #8b5cf6;
+}
+
+/* Kernel Info */
+.kernel-info {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+/* Kernel Actions */
+.kernel-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+/* Variables Section */
+.variables-section {
+    border-top: 1px solid var(--color-border);
+    padding-top: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.variables-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+}
+
+.variable-count {
+    color: var(--color-text-muted);
+    font-weight: normal;
+}
+
+.variables-list {
+    max-height: 120px;
+    overflow-y: auto;
+}
+
+.variable-empty {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    font-style: italic;
+    padding: 0.25rem 0;
+}
+
+.variable-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.2rem 0.25rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+    border-radius: 3px;
+}
+
+.variable-item:hover {
+    background: var(--color-bg);
+}
+
+.variable-name {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    color: #8b5cf6;
+}
+
+.variable-type {
+    color: var(--color-text-muted);
+    font-size: 0.7rem;
+}
+
+/* Workspaces Section */
+.workspaces-section {
+    border-top: 1px solid var(--color-border);
+    padding-top: 0.75rem;
+}
+
+.workspaces-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+}
+
+.workspace-count {
+    color: var(--color-text-muted);
+    font-weight: normal;
+}
+
+.workspaces-list {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.workspace-empty {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    font-style: italic;
+    padding: 0.5rem;
+    text-align: center;
+}
+
+.workspace-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+}
+
+.workspace-item:hover {
+    background: var(--color-bg);
+}
+
+.workspace-icon {
+    font-size: 0.9rem;
+}
+
+.workspace-name {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.workspace-name:hover {
+    text-decoration: underline;
+    color: var(--color-primary);
+}
+
+.workspace-info {
+    color: var(--color-text-muted);
+    font-size: 0.7rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
+.workspace-delete-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.2rem;
+    font-size: 0.75rem;
+    opacity: 0.4;
+    transition: opacity 0.2s;
+    margin-left: auto;
+}
+
+.workspace-delete-btn:hover {
+    opacity: 1;
+    color: var(--color-danger);
+}

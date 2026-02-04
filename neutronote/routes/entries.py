@@ -23,6 +23,7 @@ from ..app import allowed_file
 from ..models import Entry, NotebookConfig, db
 from ..services.metadata import get_run_metadata
 from ..services.data import discover_state_ids, discover_reduced_runs, get_run_metadata_lazy, get_run_metadata_quick
+from ..services.kernel import get_kernel_manager
 
 bp = Blueprint("entries", __name__, url_prefix="/entries")
 
@@ -243,6 +244,140 @@ def upload_snapshot():
         f.write(image_bytes)
     
     return jsonify({"success": True, "filename": filename})
+
+
+@bp.route("/api/execute", methods=["POST"])
+def execute_code():
+    """
+    API: Execute Python code in the persistent kernel.
+    
+    Expects JSON body with:
+        - code: Python code string to execute
+    
+    Returns:
+        - success: True/False
+        - output: stdout from execution
+        - error: error message if failed
+        - execution_time: seconds taken
+    """
+    data = request.get_json()
+    if not data or "code" not in data:
+        return jsonify({"error": "code required"}), 400
+    
+    code = data["code"]
+    
+    # Execute in persistent kernel
+    kernel = get_kernel_manager()
+    result = kernel.execute(code)
+    
+    if result.success:
+        return jsonify({
+            "success": True,
+            "output": result.output,
+            "execution_time": result.execution_time
+        })
+    else:
+        return jsonify({
+            "success": False,
+            "error": result.error or result.output,
+            "execution_time": result.execution_time
+        })
+
+
+@bp.route("/api/kernel/status")
+def kernel_status():
+    """API: Get kernel status and memory info."""
+    kernel = get_kernel_manager()
+    status = kernel.get_status()
+    memory = kernel.get_memory_info()
+    variables = kernel.get_variables()
+    
+    return jsonify({
+        "status": status.to_dict(),
+        "memory": memory.to_dict(),
+        "variables": variables,
+        "variable_count": len(variables),
+    })
+
+
+@bp.route("/api/kernel/workspaces")
+def kernel_workspaces():
+    """API: Get list of workspaces in the kernel."""
+    kernel = get_kernel_manager()
+    workspaces = kernel.get_workspaces()
+    
+    return jsonify({
+        "workspaces": [ws.to_dict() for ws in workspaces],
+        "count": len(workspaces),
+    })
+
+
+@bp.route("/api/kernel/restart", methods=["POST"])
+def kernel_restart():
+    """API: Restart the kernel (clears all workspaces)."""
+    kernel = get_kernel_manager()
+    success = kernel.restart()
+    
+    return jsonify({
+        "success": success,
+        "message": "Kernel restarted" if success else "Failed to restart kernel",
+    })
+
+
+@bp.route("/api/kernel/workspaces/<name>", methods=["DELETE"])
+def kernel_delete_workspace(name):
+    """API: Delete a workspace from the kernel."""
+    kernel = get_kernel_manager()
+    success, message = kernel.delete_workspace(name)
+    
+    return jsonify({
+        "success": success,
+        "message": message,
+        "name": name,
+    }), 200 if success else 400
+
+
+@bp.route("/api/create/code", methods=["POST"])
+def api_create_code():
+    """
+    API: Create a code entry in the timeline.
+    
+    Expects JSON body with:
+        - code: Python code string
+        - output: execution output
+        - error: True if the output is an error
+    
+    Returns:
+        - success: True/False
+        - entry_id: ID of created entry
+    """
+    data = request.get_json()
+    if not data or "code" not in data:
+        return jsonify({"error": "code required"}), 400
+    
+    code = data["code"]
+    output = data.get("output", "")
+    is_error = data.get("error", False)
+    
+    # Store code and output as JSON in body
+    body = json.dumps({
+        "code": code,
+        "output": output,
+        "error": is_error
+    })
+    
+    entry = Entry(
+        type=Entry.TYPE_CODE,
+        title=None,
+        body=body
+    )
+    db.session.add(entry)
+    db.session.commit()
+    
+    return jsonify({
+        "success": True,
+        "entry_id": entry.id
+    })
 
 
 @bp.route("/api/create/data", methods=["POST"])
