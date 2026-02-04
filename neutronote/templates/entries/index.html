@@ -144,10 +144,11 @@
                 <div id="code-editor-container">
                     <textarea id="code-editor" name="code" rows="10" placeholder="# Write Python code here...
 # You have access to: numpy, pandas, mantid, snapwrap
+# Variables persist across cell executions!
 from mantid.simpleapi import *
 print('Hello from neutroNote!')"></textarea>
                 </div>
-                <small class="form-hint">Server-side execution with mantid/snapwrap access. Use print() for output.</small>
+                <small class="form-hint">Persistent kernel with mantid/snapwrap. Variables survive across runs.</small>
             </div>
             <div class="code-actions">
                 <button type="button" class="btn btn-primary" onclick="executeCode()">
@@ -164,6 +165,67 @@ print('Hello from neutroNote!')"></textarea>
                     <button type="button" class="btn-clear-output" onclick="clearCodeOutput()">Clear</button>
                 </div>
                 <pre id="code-output" class="code-output"></pre>
+            </div>
+            
+            <!-- Kernel Status Panel -->
+            <div class="kernel-panel">
+                <div class="kernel-panel-header" onclick="toggleKernelPanel()">
+                    <span class="kernel-panel-title">
+                        <span class="kernel-indicator" id="kernel-indicator">●</span>
+                        Kernel Status
+                    </span>
+                    <span class="kernel-panel-toggle" id="kernel-panel-toggle">▼</span>
+                </div>
+                <div class="kernel-panel-content" id="kernel-panel-content">
+                    <!-- Memory Bars -->
+                    <div class="memory-section">
+                        <div class="memory-bar-container">
+                            <div class="memory-bar-label">
+                                <span>System RAM</span>
+                                <span id="system-ram-text">-- %</span>
+                            </div>
+                            <div class="memory-bar">
+                                <div class="memory-bar-fill" id="system-ram-bar" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        <div class="memory-bar-container">
+                            <div class="memory-bar-label">
+                                <span>Mantid ADS</span>
+                                <span id="mantid-ram-text">-- %</span>
+                            </div>
+                            <div class="memory-bar">
+                                <div class="memory-bar-fill mantid" id="mantid-ram-bar" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Kernel Info -->
+                    <div class="kernel-info">
+                        <span id="kernel-status-text">Kernel: checking...</span>
+                        <span id="kernel-executions">0 executions</span>
+                    </div>
+                    
+                    <!-- Kernel Actions -->
+                    <div class="kernel-actions">
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="refreshKernelStatus()">
+                            🔄 Refresh
+                        </button>
+                        <button type="button" class="btn btn-sm btn-danger" onclick="restartKernel()">
+                            ⟳ Restart Kernel
+                        </button>
+                    </div>
+                    
+                    <!-- Workspaces -->
+                    <div class="workspaces-section">
+                        <div class="workspaces-header">
+                            <span>📦 Workspaces</span>
+                            <span class="workspace-count" id="workspace-count">(0)</span>
+                        </div>
+                        <div class="workspaces-list" id="workspaces-list">
+                            <div class="workspace-empty">No workspaces loaded</div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </form>
     </aside>
@@ -2138,6 +2200,178 @@ function appendCodeEntryToTimeline(entryId, code, output, isError) {
         newEntry.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
 }
+
+// =========================================================================
+// Kernel Panel Functions
+// =========================================================================
+
+let kernelPanelOpen = true;
+
+function toggleKernelPanel() {
+    const content = document.getElementById('kernel-panel-content');
+    const toggle = document.getElementById('kernel-panel-toggle');
+    kernelPanelOpen = !kernelPanelOpen;
+    
+    if (kernelPanelOpen) {
+        content.style.display = 'block';
+        toggle.textContent = '▼';
+    } else {
+        content.style.display = 'none';
+        toggle.textContent = '▶';
+    }
+}
+
+async function refreshKernelStatus() {
+    try {
+        const response = await fetch('/entries/api/kernel/status');
+        const data = await response.json();
+        
+        updateKernelIndicator(data.status);
+        updateMemoryBars(data.memory);
+        updateKernelInfo(data.status);
+        
+        // Also refresh workspaces
+        await refreshWorkspaces();
+    } catch (err) {
+        console.error('Failed to refresh kernel status:', err);
+        updateKernelIndicator({ state: 'dead' });
+    }
+}
+
+function updateKernelIndicator(status) {
+    const indicator = document.getElementById('kernel-indicator');
+    const statusText = document.getElementById('kernel-status-text');
+    
+    indicator.className = 'kernel-indicator';
+    
+    switch (status.state) {
+        case 'idle':
+            indicator.classList.add('idle');
+            statusText.textContent = 'Kernel: idle';
+            break;
+        case 'busy':
+            indicator.classList.add('busy');
+            statusText.textContent = 'Kernel: running...';
+            break;
+        case 'starting':
+            indicator.classList.add('starting');
+            statusText.textContent = 'Kernel: starting...';
+            break;
+        case 'dead':
+        default:
+            indicator.classList.add('dead');
+            statusText.textContent = 'Kernel: not running';
+            break;
+    }
+}
+
+function updateMemoryBars(memory) {
+    const systemBar = document.getElementById('system-ram-bar');
+    const systemText = document.getElementById('system-ram-text');
+    const mantidBar = document.getElementById('mantid-ram-bar');
+    const mantidText = document.getElementById('mantid-ram-text');
+    
+    // System RAM
+    systemBar.style.width = `${memory.system_percent}%`;
+    systemText.textContent = `${memory.system_percent.toFixed(1)}% (${memory.system_used_gb.toFixed(1)} / ${memory.system_total_gb.toFixed(1)} GB)`;
+    
+    // Color based on usage level
+    systemBar.className = 'memory-bar-fill';
+    if (memory.critical) {
+        systemBar.classList.add('critical');
+    } else if (memory.warning) {
+        systemBar.classList.add('warning');
+    }
+    
+    // Mantid ADS
+    mantidBar.style.width = `${Math.min(memory.mantid_percent, 100)}%`;
+    mantidText.textContent = `${memory.mantid_percent.toFixed(1)}% (${memory.mantid_used_gb.toFixed(2)} GB)`;
+}
+
+function updateKernelInfo(status) {
+    const executions = document.getElementById('kernel-executions');
+    executions.textContent = `${status.executions_count} execution${status.executions_count !== 1 ? 's' : ''}`;
+}
+
+async function refreshWorkspaces() {
+    try {
+        const response = await fetch('/entries/api/kernel/workspaces');
+        const data = await response.json();
+        
+        const list = document.getElementById('workspaces-list');
+        const count = document.getElementById('workspace-count');
+        
+        count.textContent = `(${data.count})`;
+        
+        if (data.workspaces.length === 0) {
+            list.innerHTML = '<div class="workspace-empty">No workspaces loaded</div>';
+        } else {
+            list.innerHTML = data.workspaces.map(ws => `
+                <div class="workspace-item" onclick="insertWorkspaceName('${ws.name}')" title="Click to insert name">
+                    <span class="workspace-icon">📦</span>
+                    <span class="workspace-name">${ws.name}</span>
+                    <span class="workspace-info">${ws.type} · ${ws.num_spectra} spec · ${ws.memory_mb.toFixed(1)} MB</span>
+                </div>
+            `).join('');
+        }
+    } catch (err) {
+        console.error('Failed to refresh workspaces:', err);
+    }
+}
+
+function insertWorkspaceName(name) {
+    const editor = document.getElementById('code-editor');
+    if (editor) {
+        // Insert at cursor position or append
+        const start = editor.selectionStart;
+        const end = editor.selectionEnd;
+        const text = editor.value;
+        editor.value = text.substring(0, start) + name + text.substring(end);
+        editor.focus();
+        editor.selectionStart = editor.selectionEnd = start + name.length;
+    }
+}
+
+async function restartKernel() {
+    if (!confirm('Restart the kernel? This will clear all loaded workspaces and variables.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/entries/api/kernel/restart', {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('Kernel restarted successfully.');
+            await refreshKernelStatus();
+        } else {
+            alert('Failed to restart kernel: ' + data.message);
+        }
+    } catch (err) {
+        alert('Failed to restart kernel: ' + err.message);
+    }
+}
+
+// Update kernel status after code execution
+const originalExecuteCode = executeCode;
+executeCode = async function() {
+    await originalExecuteCode();
+    // Refresh status after execution (with slight delay for kernel to update)
+    setTimeout(refreshKernelStatus, 500);
+};
+
+// Initialize kernel panel when Code tab is shown
+document.addEventListener('DOMContentLoaded', function() {
+    // Initial refresh when page loads (if Code tab is active or when it becomes active)
+    const codeTab = document.querySelector('.tab[data-type="code"]');
+    if (codeTab) {
+        codeTab.addEventListener('click', function() {
+            setTimeout(refreshKernelStatus, 100);
+        });
+    }
+});
 
 </script>
 {% endblock %}

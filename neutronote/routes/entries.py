@@ -23,6 +23,7 @@ from ..app import allowed_file
 from ..models import Entry, NotebookConfig, db
 from ..services.metadata import get_run_metadata
 from ..services.data import discover_state_ids, discover_reduced_runs, get_run_metadata_lazy, get_run_metadata_quick
+from ..services.kernel import get_kernel_manager
 
 bp = Blueprint("entries", __name__, url_prefix="/entries")
 
@@ -248,7 +249,7 @@ def upload_snapshot():
 @bp.route("/api/execute", methods=["POST"])
 def execute_code():
     """
-    API: Execute Python code on the server.
+    API: Execute Python code in the persistent kernel.
     
     Expects JSON body with:
         - code: Python code string to execute
@@ -259,87 +260,65 @@ def execute_code():
         - error: error message if failed
         - execution_time: seconds taken
     """
-    import subprocess
-    import sys
-    import time
-    
     data = request.get_json()
     if not data or "code" not in data:
         return jsonify({"error": "code required"}), 400
     
     code = data["code"]
     
-    # Timeout in seconds
-    timeout = 60
+    # Execute in persistent kernel
+    kernel = get_kernel_manager()
+    result = kernel.execute(code)
     
-    # Build the execution wrapper
-    # We'll run the code in a subprocess with the same Python environment
-    wrapper_code = f'''
-import sys
-import io
-import traceback
-
-# Redirect stdout
-_stdout = io.StringIO()
-sys.stdout = _stdout
-
-try:
-    exec(compile({repr(code)}, "<neutronote>", "exec"), {{"__name__": "__main__"}})
-except Exception as e:
-    traceback.print_exc(file=sys.stdout)
-
-# Get output
-sys.stdout = sys.__stdout__
-print(_stdout.getvalue(), end="")
-'''
-    
-    start_time = time.time()
-    
-    try:
-        # Run in subprocess with timeout
-        result = subprocess.run(
-            [sys.executable, "-c", wrapper_code],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=current_app.config.get("UPLOAD_FOLDER", "/tmp"),  # Working directory
-        )
-        
-        execution_time = time.time() - start_time
-        
-        # Combine stdout and stderr
-        output = result.stdout
-        if result.stderr:
-            output += "\n" + result.stderr if output else result.stderr
-        
-        # Check return code
-        if result.returncode != 0:
-            return jsonify({
-                "success": False,
-                "error": output or f"Process exited with code {result.returncode}",
-                "execution_time": execution_time
-            })
-        
+    if result.success:
         return jsonify({
             "success": True,
-            "output": output,
-            "execution_time": execution_time
+            "output": result.output,
+            "execution_time": result.execution_time
         })
-        
-    except subprocess.TimeoutExpired:
-        execution_time = time.time() - start_time
+    else:
         return jsonify({
             "success": False,
-            "error": f"Execution timed out after {timeout} seconds",
-            "execution_time": execution_time
+            "error": result.error or result.output,
+            "execution_time": result.execution_time
         })
-    except Exception as e:
-        execution_time = time.time() - start_time
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "execution_time": execution_time
-        })
+
+
+@bp.route("/api/kernel/status")
+def kernel_status():
+    """API: Get kernel status and memory info."""
+    kernel = get_kernel_manager()
+    status = kernel.get_status()
+    memory = kernel.get_memory_info()
+    
+    return jsonify({
+        "status": status.to_dict(),
+        "memory": memory.to_dict(),
+    })
+
+
+@bp.route("/api/kernel/workspaces")
+def kernel_workspaces():
+    """API: Get list of workspaces in the kernel."""
+    kernel = get_kernel_manager()
+    workspaces = kernel.get_workspaces()
+    
+    return jsonify({
+        "workspaces": [ws.to_dict() for ws in workspaces],
+        "count": len(workspaces),
+    })
+
+
+@bp.route("/api/kernel/restart", methods=["POST"])
+def kernel_restart():
+    """API: Restart the kernel (clears all workspaces)."""
+    kernel = get_kernel_manager()
+    success = kernel.restart()
+    
+    return jsonify({
+        "success": success,
+        "message": "Kernel restarted" if success else "Failed to restart kernel",
+    })
 
 
 @bp.route("/api/create/code", methods=["POST"])

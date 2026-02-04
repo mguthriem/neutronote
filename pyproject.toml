@@ -57,6 +57,7 @@ plotly = ">=5.18"
 pandas = ">=2.1"
 markdown = ">=3.5"
 h5py = ">=3.10"
+psutil = ">=5.9"
 # Mantid/SNAPRed for loading reduced data
 snapred = ">2.0.0"
 

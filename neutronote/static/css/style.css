@@ -1733,3 +1733,199 @@ pre.code-input {
     border-left-color: #8b5cf6;
 }
 
+/* ============================================
+   Kernel Panel Styles
+   ============================================ */
+
+.kernel-panel {
+    margin-top: 1rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    overflow: hidden;
+}
+
+.kernel-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    background: var(--color-bg);
+    cursor: pointer;
+    user-select: none;
+}
+
+.kernel-panel-header:hover {
+    background: #e5e7eb;
+}
+
+.kernel-panel-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 500;
+    font-size: 0.9rem;
+}
+
+.kernel-panel-toggle {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+}
+
+.kernel-indicator {
+    font-size: 0.75rem;
+}
+
+.kernel-indicator.idle {
+    color: var(--color-success);
+}
+
+.kernel-indicator.busy {
+    color: var(--color-warning);
+    animation: pulse 1s infinite;
+}
+
+.kernel-indicator.starting {
+    color: var(--color-primary);
+    animation: pulse 0.5s infinite;
+}
+
+.kernel-indicator.dead {
+    color: #dc2626;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+.kernel-panel-content {
+    padding: 0.75rem;
+    border-top: 1px solid var(--color-border);
+}
+
+/* Memory Bars */
+.memory-section {
+    margin-bottom: 0.75rem;
+}
+
+.memory-bar-container {
+    margin-bottom: 0.5rem;
+}
+
+.memory-bar-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin-bottom: 0.25rem;
+}
+
+.memory-bar {
+    height: 8px;
+    background: #e5e7eb;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.memory-bar-fill {
+    height: 100%;
+    background: var(--color-success);
+    border-radius: 4px;
+    transition: width 0.3s ease, background 0.3s ease;
+}
+
+.memory-bar-fill.warning {
+    background: var(--color-warning);
+}
+
+.memory-bar-fill.critical {
+    background: #dc2626;
+}
+
+.memory-bar-fill.mantid {
+    background: #8b5cf6;
+}
+
+/* Kernel Info */
+.kernel-info {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+/* Kernel Actions */
+.kernel-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+/* Workspaces Section */
+.workspaces-section {
+    border-top: 1px solid var(--color-border);
+    padding-top: 0.75rem;
+}
+
+.workspaces-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+}
+
+.workspace-count {
+    color: var(--color-text-muted);
+    font-weight: normal;
+}
+
+.workspaces-list {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.workspace-empty {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    font-style: italic;
+    padding: 0.5rem;
+    text-align: center;
+}
+
+.workspace-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8rem;
+}
+
+.workspace-item:hover {
+    background: var(--color-bg);
+}
+
+.workspace-icon {
+    font-size: 0.9rem;
+}
+
+.workspace-name {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    flex-shrink: 0;
+}
+
+.workspace-info {
+    color: var(--color-text-muted);
+    font-size: 0.7rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
