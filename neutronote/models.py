@@ -2,11 +2,21 @@
 SQLAlchemy models for neutroNote.
 """
 
+import os
 from datetime import datetime, timezone
 
 from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
+
+
+def get_current_user() -> str:
+    """Get the current Linux username.
+    
+    Returns the USER environment variable, which is set when
+    a user logs into the system. Falls back to 'unknown' if not set.
+    """
+    return os.environ.get("USER", "unknown")
 
 
 # Association table for Entry <-> Tag many-to-many
@@ -34,8 +44,8 @@ class Entry(db.Model):
     title = db.Column(db.String(200), nullable=True)
     body = db.Column(db.Text, nullable=False, default="")
 
-    # Author tracking (simple string for now, will become FK to User table)
-    author = db.Column(db.String(100), nullable=False, default="Anonymous")
+    # Author tracking - uses Linux username from environment
+    author = db.Column(db.String(100), nullable=False, default=get_current_user)
     edited_by = db.Column(db.String(100), nullable=True)  # Who last edited
 
     # Timestamps: created_at determines timeline position, edited_at tracks modifications
@@ -69,8 +79,9 @@ class Entry(db.Model):
         return None
 
     def mark_edited(self):
-        """Update the edited_at timestamp."""
+        """Update the edited_at timestamp and record who made the edit."""
         self.edited_at = datetime.now(timezone.utc)
+        self.edited_by = get_current_user()
 
 
 class Tag(db.Model):

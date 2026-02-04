@@ -57,13 +57,14 @@ plotly = ">=5.18"
 pandas = ">=2.1"
 markdown = ">=3.5"
 h5py = ">=3.10"
+psutil = ">=5.9"
 # Mantid/SNAPRed for loading reduced data
 snapred = ">2.0.0"
 
 [tool.pixi.pypi-dependencies]
 gunicorn = ">=21.0"
-# snapwrap installed from local path for development
-snapwrap = { path = "/SNS/SNAP/shared/Malcolm/code/forks/SNAPWrap", editable = true }
+# snapwrap pinned to release candidate v2.2.0rc2
+snapwrap = { git = "https://github.com/neutrons/SNAPWrap.git", tag = "v2.2.0rc2" }
 
 [tool.pixi.feature.dev.dependencies]
 pytest = ">=8.0"
@@ -81,6 +82,8 @@ dev = "lsof -ti:5000 | xargs kill -9 2>/dev/null; sleep 0.5; flask --app neutron
 test = "pytest -q tests/"
 lint = "ruff check neutronote tests"
 fmt = "black neutronote tests"
+# Run with IPTS: pixi run ipts 33219
+ipts = "python -m neutronote.app --ipts"
 
 # ---------- Tool configs ----------
 [tool.ruff]
