@@ -168,7 +168,8 @@ class TestModels:
         assert Entry.TYPE_IMAGE == "image"
         assert Entry.TYPE_DATA == "data"
         assert Entry.TYPE_CODE == "code"
-        assert len(Entry.TYPES) == 5
+        assert Entry.TYPE_PVLOG == "pvlog"
+        assert len(Entry.TYPES) == 6
 
 
 class TestEditEntry:
@@ -479,3 +480,137 @@ class TestMetadataService:
         meta = get_run_metadata(99999999)
         assert meta.error is not None
         assert "Could not locate" in meta.error
+
+
+class TestPVLogPhase0:
+    """Tests for PV Log Phase PV-0: model changes and date configuration."""
+
+    def test_entry_type_pvlog_exists(self):
+        """Entry model should have TYPE_PVLOG constant."""
+        assert Entry.TYPE_PVLOG == "pvlog"
+        assert "pvlog" in Entry.TYPES
+
+    def test_notebook_config_date_fields(self, app):
+        """NotebookConfig should have experiment_start and experiment_end columns."""
+        with app.app_context():
+            config = NotebookConfig.get_config()
+            # Initially dates should be None
+            assert config.experiment_start is None
+            assert config.experiment_end is None
+            assert config.has_dates is False
+
+    def test_notebook_config_date_storage(self, app):
+        """Dates can be stored and retrieved from NotebookConfig."""
+        from datetime import datetime
+
+        with app.app_context():
+            config = NotebookConfig.get_config()
+            config.experiment_start = datetime(2025, 6, 1)
+            config.experiment_end = datetime(2025, 6, 15)
+            db.session.commit()
+
+            config2 = NotebookConfig.get_config()
+            assert config2.has_dates is True
+            assert config2.experiment_start.year == 2025
+            assert config2.experiment_start.month == 6
+            assert config2.experiment_start.day == 1
+            assert config2.experiment_end.day == 15
+
+    def test_notebook_config_date_str_properties(self, app):
+        """experiment_start_str and experiment_end_str return proper format."""
+        from datetime import datetime
+
+        with app.app_context():
+            config = NotebookConfig.get_config()
+            assert config.experiment_start_str == ""
+            assert config.experiment_end_str == ""
+
+            config.experiment_start = datetime(2025, 6, 1)
+            config.experiment_end = datetime(2025, 6, 15)
+            db.session.commit()
+
+            assert config.experiment_start_str == "2025-06-01"
+            assert config.experiment_end_str == "2025-06-15"
+
+    def test_pvlog_tab_disabled_without_dates(self, client):
+        """PV Log tab should be disabled when no dates are configured."""
+        response = client.get("/entries/", follow_redirects=True)
+        html = response.data.decode()
+        assert 'data-type="pvlog"' in html
+        assert 'disabled' in html.split('data-type="pvlog"')[1].split('>')[0]
+
+    def test_pvlog_tab_enabled_with_dates(self, app):
+        """PV Log tab should be enabled when dates are configured."""
+        from datetime import datetime
+
+        with app.app_context():
+            config = NotebookConfig.get_config()
+            config.ipts = "IPTS-12345"
+            config.experiment_start = datetime(2025, 6, 1)
+            config.experiment_end = datetime(2025, 6, 15)
+            db.session.commit()
+
+        client = app.test_client()
+        response = client.get("/entries/", follow_redirects=True)
+        html = response.data.decode()
+        # The PV Log tab should NOT have disabled attribute
+        pvlog_section = html.split('data-type="pvlog"')[1].split('>')[0]
+        assert 'disabled' not in pvlog_section
+
+    def test_pvlog_aliases_endpoint(self, client):
+        """GET /api/pvlog/aliases should return alias registry."""
+        response = client.get("/entries/api/pvlog/aliases")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert "pressure" in data
+        assert "temperature" in data
+        assert "pvs" in data["pressure"]
+
+    def test_pvlog_search_alias(self, client):
+        """Searching for a known alias returns its PVs."""
+        response = client.get("/entries/api/pvlog/search?pattern=pressure")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert "results" in data
+        assert len(data["results"]) > 0
+        assert any("Pressure" in pv or "Press" in pv for pv in data["results"])
+
+    def test_pvlog_search_empty(self, client):
+        """Empty search pattern returns error."""
+        response = client.get("/entries/api/pvlog/search?pattern=")
+        data = response.get_json()
+        assert "error" in data
+
+    def test_create_pvlog_entry(self, app):
+        """POST /api/create/pvlog should create a pvlog entry."""
+        import json
+
+        with app.app_context():
+            config = NotebookConfig.get_config()
+            config.ipts = "IPTS-12345"
+            db.session.commit()
+
+        client = app.test_client()
+        response = client.post(
+            "/entries/api/create/pvlog",
+            json={
+                "title": "Test PV Plot",
+                "data": {
+                    "traces": [{"name": "TestPV", "x": [1, 2, 3], "y": [10, 20, 30]}],
+                    "start": "2025-06-01T00:00:00",
+                    "end": "2025-06-15T00:00:00",
+                },
+            },
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["success"] is True
+
+        # Verify entry was created
+        with app.app_context():
+            entry = Entry.query.filter_by(type="pvlog").first()
+            assert entry is not None
+            assert entry.title == "Test PV Plot"
+            body = json.loads(entry.body)
+            assert len(body["traces"]) == 1

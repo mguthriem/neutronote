@@ -63,6 +63,7 @@ snapred = ">2.0.0"
 
 [tool.pixi.pypi-dependencies]
 gunicorn = ">=21.0"
+oracledb = ">=2.0"
 # snapwrap pinned to release candidate v2.2.0rc2
 snapwrap = { git = "https://github.com/neutrons/SNAPWrap.git", tag = "v2.2.0rc2" }
 
@@ -77,13 +78,18 @@ default = { features = ["dev"], solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
 
 [tool.pixi.tasks]
-killport = "lsof -ti:5000 | xargs kill -9 2>/dev/null || true"
-dev = "lsof -ti:5000 | xargs kill -9 2>/dev/null; sleep 0.5; flask --app neutronote.app run --debug"
+killport = "lsof -ti:6001 | xargs kill -9 2>/dev/null || true"
+dev = "lsof -ti:6001 | xargs kill -9 2>/dev/null; sleep 0.5; flask --app neutronote.app run --debug --port 6001"
 test = "pytest -q tests/"
 lint = "ruff check neutronote tests"
 fmt = "black neutronote tests"
 # Run with IPTS: pixi run ipts 33219
 ipts = "python -m neutronote.app --ipts"
+
+# Multi-user: each user should pick a unique port (6000-6999)
+# Usage: pixi run serve <IPTS> <PORT>
+# Example: pixi run serve 33219 6001
+serve = "python -m neutronote.app --ipts"
 
 # ---------- Tool configs ----------
 [tool.ruff]
