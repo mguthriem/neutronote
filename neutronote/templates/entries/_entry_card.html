@@ -1,5 +1,5 @@
 {# Entry card partial – renders a single entry in the timeline #}
-<article class="entry-card entry-{{ entry.type }}">
+<article class="entry-card entry-{{ entry.type }}" data-entry-id="{{ entry.id }}">
     {% if entry.type == 'header' %}
     {# Compact single-row header for run header entries #}
     <header class="entry-header entry-header-compact">
@@ -64,6 +64,9 @@
         {% elif entry.type == 'code' %}
             {# Code cell rendering - Phase 4 #}
             {% include "entries/_code_content.html" %}
+        {% elif entry.type == 'pvlog' %}
+            {# PV Log rendering - Phase PV #}
+            {% include "entries/_pvlog_content.html" %}
         {% endif %}
     </div>
     

@@ -1,0 +1,176 @@
+{# PV Log entry content partial – renders PV time-series plot in timeline #}
+{% set pvdata = entry.body|fromjson %}
+{% if pvdata and pvdata.get('error') %}
+    <div class="pvlog-error">
+        <strong>Error:</strong> {{ pvdata.error }}
+    </div>
+{% elif pvdata and pvdata.get('traces') %}
+    <div class="pvlog-entry-chart" id="pvlog-entry-chart-{{ entry.id }}"></div>
+    <div class="pvlog-entry-meta">
+        <small>
+            {{ pvdata.traces|length }} PV{{ 's' if pvdata.traces|length != 1 else '' }}
+            {%- if pvdata.runs %} · {{ pvdata.runs|length }} run{{ 's' if pvdata.runs|length != 1 else '' }}{% endif %} ·
+            {{ pvdata.start[:10] if pvdata.start else '?' }} → {{ pvdata.end[:10] if pvdata.end else '?' }}
+        </small>
+    </div>
+    <div class="data-entry-actions">
+        <button type="button" class="btn btn-sm btn-secondary"
+                onclick="openPVLogViewerForEntry({{ entry.id }})">
+            🔍 Expand
+        </button>
+    </div>
+    <script>
+    (function() {
+        const MIN_RUN_S = 30;  // 30 seconds (runs gated by StateEnum==3)
+        const RUN_COLORS = [
+            'rgba(100, 149, 237, 0.12)',
+            'rgba(144, 238, 144, 0.12)',
+        ];
+        const TRACE_COLORS = [
+            '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
+            '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
+        ];
+
+        function pvShort(name) {
+            const p = name.split(':');
+            return p.length >= 2 ? p[p.length - 2] : name;
+        }
+
+        function renderPVLogChart() {
+            const data = {{ pvdata|tojson }};
+            const nTraces = data.traces.length;
+            const xRange = data.x_range || null;
+
+            const traces = data.traces.map((t, i) => ({
+                x: t.x.map(ts => new Date(ts * 1000)),
+                y: t.y.map(v => (v === null || v === undefined) ? null : v),
+                name: t.pv ? pvShort(t.pv) : t.name,
+                type: 'scatter',
+                mode: 'lines',
+                connectgaps: false,
+                line: {color: TRACE_COLORS[i % TRACE_COLORS.length], width: 1.5},
+                yaxis: i === 0 ? 'y' : 'y' + (i + 1),
+            }));
+
+            const extraLeft  = Math.max(0, Math.floor(nTraces / 2) - 1);
+            const extraRight = Math.max(0, Math.floor((nTraces - 1) / 2) - 1);
+            const mL = 55 + extraLeft * 50;
+            const mR = 55 + extraRight * 50;
+
+            const layout = {
+                margin: {l: mL, r: mR, t: 10, b: 40},
+                showlegend: true,
+                legend: {
+                    orientation: 'h', x: 0.5, xanchor: 'center',
+                    y: 1, yanchor: 'top',
+                    bgcolor: 'rgba(255,255,255,0.7)',
+                },
+                xaxis: {type: 'date'},
+                shapes: [],
+                annotations: [],
+            };
+
+            // Apply saved x-range if present
+            if (xRange && xRange.length === 2) {
+                layout.xaxis.range = [new Date(xRange[0]).toISOString(), new Date(xRange[1]).toISOString()];
+            }
+
+            // One y-axis per trace, alternating left/right
+            data.traces.forEach((t, i) => {
+                const key = i === 0 ? 'yaxis' : 'yaxis' + (i + 1);
+                const side = i % 2 === 0 ? 'left' : 'right';
+                const label = t.pv ? pvShort(t.pv) : t.name;
+                const units = t.units || '';
+                const title = units ? `${label} (${units})` : label;
+                const color = TRACE_COLORS[i % TRACE_COLORS.length];
+
+                const axis = {
+                    title: {text: title, font: {color: color, size: 11}},
+                    tickfont: {color: color},
+                    side: side,
+                    overlaying: i === 0 ? undefined : 'y',
+                    showgrid: i === 0,
+                };
+                if (i >= 2) {
+                    axis.anchor = 'free';
+                    if (side === 'left') {
+                        axis.position = Math.floor(i / 2) * 0.07;
+                    } else {
+                        axis.position = 1 - Math.floor((i - 1) / 2) * 0.07;
+                    }
+                }
+                layout[key] = axis;
+            });
+
+            // Run boundaries – recalculate based on visible range
+            if (data.runs && data.runs.length > 0) {
+                let rangeStart, rangeEnd;
+                if (xRange && xRange.length === 2) {
+                    rangeStart = new Date(xRange[0]).getTime() / 1000;
+                    rangeEnd   = new Date(xRange[1]).getTime() / 1000;
+                } else {
+                    const allTimes = data.traces.flatMap(t => t.x);
+                    rangeStart = Math.min(...allTimes);
+                    rangeEnd   = Math.max(...allTimes);
+                }
+
+                const vis = data.runs.filter(r =>
+                    (r.end - r.start) >= MIN_RUN_S &&
+                    r.end > rangeStart && r.start < rangeEnd
+                );
+
+                // Stable colour per run_number (same run = same colour across segments)
+                const runColorMap = {};
+                let cIdx = 0;
+                vis.forEach(r => {
+                    if (!(r.run_number in runColorMap)) {
+                        runColorMap[r.run_number] = RUN_COLORS[cIdx % RUN_COLORS.length];
+                        cIdx++;
+                    }
+                });
+
+                const totalRange = (rangeEnd - rangeStart) || 1;
+                const labelledRuns = new Set();
+                let lastEnd = -Infinity;
+                vis.forEach(run => {
+                    const x0 = new Date(run.start * 1000).toISOString();
+                    const x1 = new Date(run.end   * 1000).toISOString();
+                    layout.shapes.push({
+                        type: 'rect', xref: 'x', yref: 'paper',
+                        x0, x1, y0: 0, y1: 1,
+                        fillcolor: runColorMap[run.run_number],
+                        line: {width: 0}, layer: 'below',
+                    });
+                    if (!labelledRuns.has(run.run_number)) {
+                        if ((run.start - lastEnd) / totalRange >= 0.025 || lastEnd === -Infinity) {
+                            layout.annotations.push({
+                                x: new Date((run.start + run.end) / 2 * 1000).toISOString(),
+                                y: 0.02, xref: 'x', yref: 'paper',
+                                text: String(run.run_number),
+                                showarrow: false,
+                                font: {size: 10, color: '#555'},
+                                yanchor: 'bottom', textangle: -90, opacity: 0.8,
+                            });
+                            lastEnd = run.end;
+                            labelledRuns.add(run.run_number);
+                        }
+                    }
+                });
+            }
+
+            const el = document.getElementById('pvlog-entry-chart-{{ entry.id }}');
+            if (el && typeof Plotly !== 'undefined') {
+                layout.height = 300;
+                Plotly.newPlot(el, traces, layout, {responsive: true, displayModeBar: false});
+                // Stash data on element for the expand viewer
+                el._pvlogData = data;
+            } else if (el) {
+                setTimeout(renderPVLogChart, 200);
+            }
+        }
+        renderPVLogChart();
+    })();
+    </script>
+{% else %}
+    <p class="placeholder-text">No PV data available.</p>
+{% endif %}
