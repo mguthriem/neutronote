@@ -9,7 +9,7 @@
         <div class="setup-header">
             <h2>📓 Configure Notebook</h2>
             {% if config.is_configured %}
-            <button type="button" class="btn-close" onclick="document.getElementById('setup-overlay').style.display='none'">×</button>
+            <button type="button" class="btn-close" onclick="document.getElementById('setup-overlay').style.display='none'; if(typeof refreshKernelStatus==='function') setTimeout(refreshKernelStatus,300);">×</button>
             {% endif %}
         </div>
         <p>Enter the IPTS number for this experiment notebook. This will be used for all run header lookups.</p>
@@ -24,6 +24,17 @@
                 <label for="setup-title">Notebook Title (optional)</label>
                 <input type="text" id="setup-title" name="notebook_title" placeholder="e.g., Diamond Anvil Calibration" value="{{ config.title or '' }}">
             </div>
+            <div class="form-row">
+                <div class="form-group form-group-half">
+                    <label for="setup-start-date">Experiment Start</label>
+                    <input type="date" id="setup-start-date" name="experiment_start" value="{{ config.experiment_start_str }}">
+                </div>
+                <div class="form-group form-group-half">
+                    <label for="setup-end-date">Experiment End</label>
+                    <input type="date" id="setup-end-date" name="experiment_end" value="{{ config.experiment_end_str }}">
+                </div>
+            </div>
+            <small class="form-hint" style="margin-top: -0.5em; display: block;">Dates are used as the default time range for PV Log queries. Leave blank to skip.</small>
             <button type="submit" class="btn btn-primary btn-large">{% if config.is_configured %}Update{% else %}Start Notebook{% endif %}</button>
         </form>
     </div>
@@ -55,6 +66,7 @@
             <button class="tab" data-type="image">Image</button>
             <button class="tab" data-type="data" {% if not config.is_configured %}disabled title="Configure IPTS first"{% endif %}>Data</button>
             <button class="tab" data-type="code">Code</button>
+            <button class="tab" data-type="pvlog" {% if not config.has_dates %}disabled title="Configure experiment dates first"{% endif %}>PV Log</button>
         </div>
 
         <!-- Text entry form -->
@@ -84,19 +96,55 @@
             {% endif %}
         </form>
 
-        <!-- Image upload form -->
-        <form id="image-form" class="entry-form" action="{{ url_for('entries.create_image') }}" method="post" enctype="multipart/form-data">
+        <!-- Image entry form -->
+        <div id="image-form" class="entry-form">
+            <!-- Source toggle -->
             <div class="form-group">
-                <label for="image">Select Image</label>
-                <input type="file" id="image" name="image" accept="image/*" required>
-                <small class="form-hint">Supported formats: PNG, JPG, GIF, WebP, SVG (max 16 MB)</small>
+                <label>Image source</label>
+                <div class="image-source-toggle">
+                    <button type="button" class="btn btn-sm" id="img-src-server" onclick="setImageSource('server')" title="Browse IPTS shared directory">📂 IPTS Files</button>
+                    <button type="button" class="btn btn-sm" id="img-src-upload" onclick="setImageSource('upload')" title="Upload from your computer">💻 Upload</button>
+                </div>
             </div>
-            <div class="form-group">
-                <label for="caption">Caption (optional)</label>
-                <input type="text" id="caption" name="caption" placeholder="Image caption...">
+
+            <!-- Server file browser -->
+            <div id="img-server-panel">
+                <div class="form-group">
+                    <label id="img-browse-path" class="img-browse-path">shared/</label>
+                    <div id="img-browser" class="img-browser">
+                        <div class="img-browser-loading">Loading…</div>
+                    </div>
+                </div>
+                <div id="img-selected-file" class="img-selected-file" style="display:none;">
+                    <span id="img-selected-name"></span>
+                    <button type="button" class="btn-clear" onclick="clearImageSelection()" title="Clear">✕</button>
+                </div>
             </div>
-            <button type="submit" class="btn btn-primary">Upload Image</button>
-        </form>
+
+            <!-- Upload from local computer -->
+            <div id="img-upload-panel" style="display:none;">
+                <form id="image-upload-form" action="{{ url_for('entries.create_image') }}" method="post" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <input type="file" id="image" name="image" accept="image/*" required>
+                        <small class="form-hint">PNG, JPG, GIF, WebP, SVG (max 16 MB)</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="caption-upload">Caption (optional)</label>
+                        <input type="text" id="caption-upload" name="caption" placeholder="Image caption...">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Upload Image</button>
+                </form>
+            </div>
+
+            <!-- Caption + Save for server-picked images -->
+            <div id="img-server-actions" style="display:none;">
+                <div class="form-group">
+                    <label for="caption-server">Caption (optional)</label>
+                    <input type="text" id="caption-server" placeholder="Image caption...">
+                </div>
+                <button type="button" class="btn btn-primary" onclick="saveServerImage()">Save Image</button>
+            </div>
+        </div>
 
         <!-- Reduced Data entry form -->
         <form id="data-form" class="entry-form">
@@ -174,6 +222,67 @@ print('Hello from neutroNote!')"></textarea>
             </div>
         </form>
         
+        <!-- PV Log entry form -->
+        <form id="pvlog-form" class="entry-form" style="display:none;">
+            {% if config.has_dates %}
+            <div class="pvlog-date-range">
+                <div class="form-row">
+                    <div class="form-group form-group-half">
+                        <label for="pvlog-start">Start</label>
+                        <input type="datetime-local" id="pvlog-start" name="pv_start" value="{{ config.experiment_start.strftime('%Y-%m-%dT08:00') if config.experiment_start else '' }}">
+                    </div>
+                    <div class="form-group form-group-half">
+                        <label for="pvlog-end">End</label>
+                        <input type="datetime-local" id="pvlog-end" name="pv_end" value="{{ config.experiment_end.strftime('%Y-%m-%dT08:00') if config.experiment_end else '' }}">
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Select PV Categories</label>
+                <div class="pvlog-alias-checkboxes" id="pvlog-alias-checkboxes">
+                    {% for key, info in aliases.items() %}
+                    <label class="pvlog-alias-checkbox">
+                        <input type="checkbox" name="pvlog_alias" value="{{ key }}">
+                        {{ info.label }}{% if info.units %} <small>({{ info.units }})</small>{% endif %}
+                    </label>
+                    {% endfor %}
+                </div>
+                <button type="button" class="btn btn-primary" onclick="resolveAliases()" id="pvlog-resolve-btn" style="width:100%; margin-top:0.4rem;">
+                    🔍 Fetch &amp; Plot
+                </button>
+                <small class="form-hint">Resolves all candidate PVs for the selected categories, keeps those with data, and overlays run boundaries.</small>
+            </div>
+
+            <div id="pvlog-resolve-info" class="pvlog-resolve-info" style="display:none;">
+                <!-- Populated by JS after resolve -->
+            </div>
+
+            <div class="form-group">
+                <label for="pvlog-title">Entry Title (optional)</label>
+                <input type="text" id="pvlog-title" name="pvlog_title" placeholder="e.g., Pressure & Temperature vs Time">
+            </div>
+
+            <div class="pvlog-actions">
+                <button type="button" class="btn btn-secondary" onclick="savePVLogEntry()" id="pvlog-save-btn" disabled>
+                    📝 Save to Timeline
+                </button>
+                <span class="pvlog-status" id="pvlog-status"></span>
+            </div>
+
+            <div id="pvlog-chart-container" class="pvlog-chart-container" style="display:none;">
+                <div class="pvlog-chart-toolbar">
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="openPVLogViewer()" title="Open in full-screen viewer">
+                        🔍 Expand
+                    </button>
+                </div>
+                <div id="pvlog-chart"></div>
+            </div>
+            {% else %}
+            <p class="placeholder-text">Please configure experiment dates in the notebook settings (⚙️) to enable PV Log queries.</p>
+            {% endif %}
+        </form>
+
         <!-- Kernel Status Panel (always visible) -->
         <div class="kernel-panel">
             <div class="kernel-panel-header" onclick="toggleKernelPanel()">
@@ -370,6 +479,27 @@ print('Hello from neutroNote!')"></textarea>
     </div>
 </div>
 
+<!-- PV Log Viewer Modal -->
+<div id="pvlog-viewer-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-content modal-fullscreen">
+        <div class="modal-header">
+            <h3 id="pvlog-viewer-title">📈 PV Log</h3>
+            <div class="pvlog-viewer-actions">
+                <button type="button" class="btn btn-sm btn-secondary" id="pvlog-viewer-save-btn" onclick="savePVLogFromViewer()">
+                    📝 Save view to Timeline
+                </button>
+                <button type="button" class="btn-close" onclick="closePVLogViewer()">×</button>
+            </div>
+        </div>
+        <div class="modal-body plot-body">
+            <div id="pvlog-viewer-container" class="plot-container"></div>
+        </div>
+        <div class="plot-info">
+            <span id="pvlog-viewer-info"></span>
+        </div>
+    </div>
+</div>
+
     <!-- Resizable Panel Divider -->
     <div class="panel-resizer" id="panel-resizer"></div>
 
@@ -388,8 +518,13 @@ print('Hello from neutroNote!')"></textarea>
         
         <div class="timeline-header">
             <h2>Timeline</h2>
-            <!-- Dev tools - remove in production -->
-            <button type="button" class="btn btn-sm btn-danger" onclick="resetTimeline()" title="DEV: Clear all entries">🗑️ Reset</button>
+            <div class="timeline-header-actions">
+                <button type="button" class="btn btn-sm btn-secondary" id="timeline-sort-btn" onclick="toggleTimelineSort()" title="Toggle sort order">
+                    ↑ Oldest first
+                </button>
+                <!-- Dev tools - remove in production -->
+                <button type="button" class="btn btn-sm btn-danger" onclick="resetTimeline()" title="DEV: Clear all entries">🗑️ Reset</button>
+            </div>
         </div>
         
         <div class="timeline" id="timeline">
@@ -432,6 +567,11 @@ function switchToTab(type) {
             loadStates();
         }
     }
+
+    // Initialise the image file browser when switching to image tab
+    if (type === 'image') {
+        setImageSource('server');
+    }
 }
 
 // Tab switching for entry types
@@ -449,9 +589,111 @@ if (tabParam) {
     switchToTab(tabParam);
 }
 
-// Auto-scroll timeline to bottom (newest entries)
+// ============ Timeline Sort Toggle ============
+// (Must be defined early – referenced by auto-scroll logic below)
+
+// Persist sort preference across page reloads (sessionStorage survives reload)
+let timelineSortAsc = sessionStorage.getItem('timelineSortAsc') !== 'false';  // default true
+
+function toggleTimelineSort() {
+    timelineSortAsc = !timelineSortAsc;
+    sessionStorage.setItem('timelineSortAsc', String(timelineSortAsc));
+    applyTimelineSort();
+}
+
+function applyTimelineSort() {
+    const btn = document.getElementById('timeline-sort-btn');
+    btn.textContent = timelineSortAsc ? '↑ Oldest first' : '↓ Newest first';
+
+    const timeline = document.getElementById('timeline');
+    const cards = Array.from(timeline.querySelectorAll('.entry-card'));
+    if (cards.length === 0) return;
+
+    // Sort by entry id (numeric, always present in data-entry-id)
+    cards.sort((a, b) => {
+        const idA = parseInt(a.dataset.entryId, 10);
+        const idB = parseInt(b.dataset.entryId, 10);
+        return timelineSortAsc ? idA - idB : idB - idA;
+    });
+    cards.forEach(card => timeline.appendChild(card));
+}
+
+// Apply saved sort preference on page load
+applyTimelineSort();
+
+// Auto-scroll: if we just created an entry, restore the previous scroll
+// position instantly (no flash) then smoothly scroll to the newest entry.
+// Otherwise scroll to end (ascending) or start (descending).
 const timeline = document.getElementById('timeline');
-timeline.scrollTop = timeline.scrollHeight;
+const _scrollToNewest = sessionStorage.getItem('scrollToNewest');
+const _savedScroll = sessionStorage.getItem('timelineScrollTop');
+sessionStorage.removeItem('scrollToNewest');
+sessionStorage.removeItem('timelineScrollTop');
+
+function _scrollToEntry(entryEl) {
+    if (!entryEl) return;
+    entryEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+if (_scrollToNewest) {
+    // Instantly restore the scroll position the user had before the reload
+    if (_savedScroll !== null) {
+        timeline.scrollTop = parseInt(_savedScroll, 10);
+    }
+
+    // Find the entry with the highest data-entry-id
+    const allCards = Array.from(timeline.querySelectorAll('.entry-card[data-entry-id]'));
+    if (allCards.length) {
+        let newest = allCards[0];
+        let maxId = parseInt(newest.dataset.entryId, 10) || 0;
+        for (const c of allCards) {
+            const id = parseInt(c.dataset.entryId, 10) || 0;
+            if (id > maxId) { maxId = id; newest = c; }
+        }
+        // Brief highlight to draw the eye
+        newest.style.transition = 'outline 0.3s';
+        newest.style.outline = '2px solid var(--primary, #3b82f6)';
+        setTimeout(() => { newest.style.outline = ''; }, 2000);
+
+        // Wait for images/plots in the timeline to finish loading before scrolling
+        const images = timeline.querySelectorAll('img');
+        if (images.length) {
+            let loaded = 0;
+            const total = images.length;
+            const done = () => { loaded++; if (loaded >= total) _scrollToEntry(newest); };
+            images.forEach(img => {
+                if (img.complete) { done(); }
+                else { img.addEventListener('load', done); img.addEventListener('error', done); }
+            });
+            // Fallback: scroll anyway after 1.5s
+            setTimeout(() => _scrollToEntry(newest), 1500);
+        } else {
+            // No images – still wait one frame for layout, then scroll
+            requestAnimationFrame(() => _scrollToEntry(newest));
+        }
+    }
+} else {
+    // Normal page load (not after entry creation): scroll to end/start
+    if (timelineSortAsc) {
+        timeline.scrollTop = timeline.scrollHeight;
+    } else {
+        timeline.scrollTop = 0;
+    }
+}
+
+// Helper: save scroll position + set flag before a page reload/submit
+function _flagNewEntry() {
+    sessionStorage.setItem('scrollToNewest', 'true');
+    sessionStorage.setItem('timelineScrollTop', String(timeline.scrollTop));
+}
+
+// Flag form submissions so the page scrolls to the new entry after redirect
+['text-form', 'header-form', 'image-upload-form'].forEach(id => {
+    const form = document.getElementById(id);
+    if (form) {
+        form.addEventListener('submit', () => _flagNewEntry());
+    }
+});
 
 // =============================================================================
 // Dev Tools
@@ -480,6 +722,142 @@ function resetTimeline() {
         alert('Failed to reset timeline');
     });
 }
+
+// =============================================================================
+// Image File Browser (IPTS shared directory)
+// =============================================================================
+
+// Track state for the server-side file browser
+window._imgBrowserPath = '';       // current relative path
+window._imgSelectedPath = null;    // selected file relative path
+
+function setImageSource(mode) {
+    const serverBtn = document.getElementById('img-src-server');
+    const uploadBtn = document.getElementById('img-src-upload');
+    const serverPanel = document.getElementById('img-server-panel');
+    const uploadPanel = document.getElementById('img-upload-panel');
+    const serverActions = document.getElementById('img-server-actions');
+
+    if (mode === 'server') {
+        serverBtn.classList.add('active');
+        uploadBtn.classList.remove('active');
+        serverPanel.style.display = '';
+        uploadPanel.style.display = 'none';
+        serverActions.style.display = window._imgSelectedPath ? '' : 'none';
+        // Load the root listing on first show
+        browseIPTS('');
+    } else {
+        uploadBtn.classList.add('active');
+        serverBtn.classList.remove('active');
+        serverPanel.style.display = 'none';
+        uploadPanel.style.display = '';
+        serverActions.style.display = 'none';
+    }
+}
+
+function browseIPTS(relPath) {
+    window._imgBrowserPath = relPath;
+    const browser = document.getElementById('img-browser');
+    const pathLabel = document.getElementById('img-browse-path');
+    browser.innerHTML = '<div class="img-browser-loading">Loading…</div>';
+
+    fetch(`/entries/api/browse?path=${encodeURIComponent(relPath)}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                browser.innerHTML = `<div class="img-browser-error">${data.error}</div>`;
+                return;
+            }
+            pathLabel.textContent = `${data.root}/${data.path ? data.path + '/' : ''}`;
+
+            let html = '';
+
+            // "Up" link
+            if (data.parent !== null) {
+                html += `<div class="img-browser-item img-browser-dir" onclick="browseIPTS('${data.parent}')">⬆️ ..</div>`;
+            }
+
+            // Directories
+            for (const d of data.dirs) {
+                const childPath = data.path ? data.path + '/' + d.name : d.name;
+                html += `<div class="img-browser-item img-browser-dir" onclick="browseIPTS('${childPath}')">📁 ${d.name}</div>`;
+            }
+
+            // Files
+            for (const f of data.files) {
+                const filePath = data.path ? data.path + '/' + f.name : f.name;
+                const sizeKB = (f.size / 1024).toFixed(0);
+                const selected = (window._imgSelectedPath === filePath) ? ' img-browser-selected' : '';
+                html += `<div class="img-browser-item img-browser-file${selected}" onclick="selectServerImage('${filePath}', '${f.name}')">🖼️ ${f.name} <span class="img-file-size">(${sizeKB} KB)</span></div>`;
+            }
+
+            if (!data.dirs.length && !data.files.length) {
+                html += '<div class="img-browser-empty">No image files found in this directory</div>';
+            }
+
+            browser.innerHTML = html;
+        })
+        .catch(err => {
+            console.error('Browse error:', err);
+            browser.innerHTML = '<div class="img-browser-error">Failed to load directory</div>';
+        });
+}
+
+function selectServerImage(relPath, name) {
+    window._imgSelectedPath = relPath;
+    document.getElementById('img-selected-file').style.display = '';
+    document.getElementById('img-selected-name').textContent = relPath;
+    document.getElementById('img-server-actions').style.display = '';
+
+    // Highlight the selected item
+    document.querySelectorAll('.img-browser-file').forEach(el => el.classList.remove('img-browser-selected'));
+    event.currentTarget.classList.add('img-browser-selected');
+}
+
+function clearImageSelection() {
+    window._imgSelectedPath = null;
+    document.getElementById('img-selected-file').style.display = 'none';
+    document.getElementById('img-selected-name').textContent = '';
+    document.getElementById('img-server-actions').style.display = 'none';
+    document.querySelectorAll('.img-browser-file').forEach(el => el.classList.remove('img-browser-selected'));
+}
+
+function saveServerImage() {
+    if (!window._imgSelectedPath) return;
+    const caption = document.getElementById('caption-server').value.trim();
+    const btn = event.currentTarget;
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+
+    fetch('/entries/api/pick-image', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path: window._imgSelectedPath, caption: caption}),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            alert('Error: ' + data.error);
+            btn.disabled = false;
+            btn.textContent = 'Save Image';
+        } else {
+            _flagNewEntry();
+            location.reload();
+        }
+    })
+    .catch(err => {
+        console.error('Pick-image error:', err);
+        alert('Failed to save image');
+        btn.disabled = false;
+        btn.textContent = 'Save Image';
+    });
+}
+
+// Default to server browser on load (if image tab is active it will be set up)
+document.addEventListener('DOMContentLoaded', () => {
+    const serverBtn = document.getElementById('img-src-server');
+    if (serverBtn) serverBtn.classList.add('active');
+});
 
 // =============================================================================
 // Reduced Data Selection Logic
@@ -1117,7 +1495,17 @@ function loadPlotData(workspaceType) {
     }
     
     fetch(url)
-        .then(res => res.json())
+        .then(res => {
+            if (!res.ok) {
+                return res.text().then(t => {
+                    throw new Error(`HTTP ${res.status}: ${t.substring(0, 300)}`);
+                });
+            }
+            return res.text().then(t => {
+                try { return JSON.parse(t); }
+                catch(e) { throw new Error(`Invalid JSON from server: ${t.substring(0, 300)}`); }
+            });
+        })
         .then(data => {
             if (data.error) {
                 plotContainer.innerHTML = `<div class="error-message">Error: ${data.error}</div>`;
@@ -1130,7 +1518,7 @@ function loadPlotData(workspaceType) {
             updatePlotInfo(data);
         })
         .catch(err => {
-            plotContainer.innerHTML = `<div class="error-message">Failed to load plot data: ${err}</div>`;
+            plotContainer.innerHTML = `<div class="error-message">Failed to load plot data: ${err.message || err}</div>`;
             console.error('Plot data error:', err);
         });
 }
@@ -1742,7 +2130,7 @@ function fetchAndAppendNewEntry(entryId, runNumbers, stateId, workspace, selecte
     const noteHtml = note ? `<div class="data-note">${escapeHtml(note)}</div>` : '';
     
     const entryHtml = `
-        <article class="entry-card entry-type-data" id="entry-${entryId}">
+        <article class="entry-card entry-type-data" id="entry-${entryId}" data-entry-id="${entryId}">
             <div class="entry-header">
                 <span class="entry-type-badge">📊 data</span>
                 <time class="entry-timestamp">${new Date().toLocaleString()}</time>
@@ -2260,7 +2648,7 @@ function appendCodeEntryToTimeline(entryId, code, output, isError) {
     const statusIcon = isError ? '❌' : '✅';
     
     const entryHtml = `
-        <article class="entry-card entry-type-code" id="entry-${entryId}">
+        <article class="entry-card entry-type-code" id="entry-${entryId}" data-entry-id="${entryId}">
             <div class="entry-header">
                 <span class="entry-type-badge badge-code">🐍 code</span>
                 <time class="entry-timestamp">${new Date().toLocaleString()}</time>
@@ -2513,8 +2901,21 @@ executeCode = async function() {
 
 // Initialize kernel panel on page load
 document.addEventListener('DOMContentLoaded', function() {
-    // Always refresh kernel status on page load
-    setTimeout(refreshKernelStatus, 200);
+    // Only refresh kernel status if the setup overlay is NOT visible
+    // (avoids blocking the single-threaded Flask server while user is configuring)
+    const overlay = document.getElementById('setup-overlay');
+    const overlayVisible = overlay && overlay.style.display !== 'none';
+
+    if (!overlayVisible) {
+        // Use requestIdleCallback (or fallback to setTimeout) so we don't
+        // compete with initial page paint / user interaction
+        const deferredRefresh = () => setTimeout(refreshKernelStatus, 1000);
+        if (window.requestIdleCallback) {
+            requestIdleCallback(deferredRefresh, { timeout: 3000 });
+        } else {
+            deferredRefresh();
+        }
+    }
     
     // Also refresh when Code tab is clicked
     const codeTab = document.querySelector('.tab[data-type="code"]');
@@ -2583,7 +2984,532 @@ document.addEventListener('DOMContentLoaded', function() {
     if (savedWidth) {
         createPanel.style.width = savedWidth;
     }
+
+    // ---- Responsive Plotly charts ----
+    // Plotly's `responsive:true` only listens to window.resize, not container
+    // size changes from the panel resizer.  Use a ResizeObserver on both panels
+    // and on the window to relay resize events to every active Plotly chart.
+    function resizeAllPlotly() {
+        document.querySelectorAll('.js-plotly-plot').forEach(el => {
+            Plotly.Plots.resize(el);
+        });
+    }
+
+    // Debounce helper
+    let _resizeTimer = null;
+    function debouncedResizePlotly() {
+        clearTimeout(_resizeTimer);
+        _resizeTimer = setTimeout(resizeAllPlotly, 120);
+    }
+
+    // Watch both panels for size changes (triggered by divider drag)
+    if (typeof ResizeObserver !== 'undefined') {
+        const ro = new ResizeObserver(debouncedResizePlotly);
+        ro.observe(createPanel);
+        const timeline = document.querySelector('.timeline-panel');
+        if (timeline) ro.observe(timeline);
+    }
+
+    // Also catch browser window resize
+    window.addEventListener('resize', debouncedResizePlotly);
 })();
+
+// ============ PV Log Functions ============
+
+// Configurable: minimum run duration in seconds to display.
+// Now that runs are gated by StateEnum==3 (actual acquisition), this
+// can be much lower than before – short collection blocks are real.
+const MIN_RUN_DURATION_S = 30;  // 30 seconds
+
+// Pastel colours for run-boundary shading (alternating)
+const RUN_COLORS = [
+    'rgba(100, 149, 237, 0.12)',  // cornflower blue
+    'rgba(144, 238, 144, 0.12)',  // light green
+];
+
+/**
+ * Extract a short, meaningful label from a PV name.
+ * E.g. "BL3:SE:Teledyne1:Pressure" → "Teledyne1"
+ *      "BL3:SE:PACE1:Pressure"     → "PACE1"
+ * Uses the second-to-last colon-delimited component.
+ */
+function pvShortLabel(pvName) {
+    const parts = pvName.split(':');
+    return parts.length >= 2 ? parts[parts.length - 2] : pvName;
+}
+
+/**
+ * Resolve multiple aliases: fetch all checked categories, merge traces + runs, then plot.
+ */
+function resolveAliases() {
+    const checkboxes = document.querySelectorAll('#pvlog-alias-checkboxes input[type="checkbox"]:checked');
+    const aliases = Array.from(checkboxes).map(cb => cb.value);
+    if (aliases.length === 0) {
+        document.getElementById('pvlog-status').textContent = 'Please select at least one category.';
+        return;
+    }
+
+    const btn    = document.getElementById('pvlog-resolve-btn');
+    const status = document.getElementById('pvlog-status');
+    btn.disabled = true;
+    btn.textContent = '⏳ Fetching…';
+    status.textContent = `Querying Oracle for ${aliases.length} category(s)…`;
+
+    const start = document.getElementById('pvlog-start')?.value || '';
+    const end   = document.getElementById('pvlog-end')?.value || '';
+
+    // Fire parallel requests for each alias
+    const requests = aliases.map(alias => {
+        const params = new URLSearchParams({alias});
+        if (start) params.set('start', start);
+        if (end)   params.set('end', end);
+        return fetch(`/entries/api/pvlog/resolve?${params.toString()}`).then(r => r.json());
+    });
+
+    Promise.all(requests)
+        .then(results => {
+            // Check for errors
+            const errors = results.filter(r => r.error);
+            if (errors.length === results.length) {
+                status.textContent = `Error: ${errors[0].error}`;
+                return;
+            }
+
+            // Merge traces, skipped PVs, and runs from all responses
+            const allTraces  = [];
+            const allSkippedDetails = [];
+            let   allRuns    = [];
+            let   mergedStart = null, mergedEnd = null;
+            const seenRuns = new Set();
+
+            results.forEach(data => {
+                if (data.error) return;
+                if (data.traces) allTraces.push(...data.traces);
+                if (data.skipped_details) allSkippedDetails.push(...data.skipped_details);
+                if (data.start && (!mergedStart || data.start < mergedStart)) mergedStart = data.start;
+                if (data.end && (!mergedEnd || data.end > mergedEnd)) mergedEnd = data.end;
+                // Deduplicate runs by run_number
+                (data.runs || []).forEach(r => {
+                    if (!seenRuns.has(r.run_number)) {
+                        seenRuns.add(r.run_number);
+                        allRuns.push(r);
+                    }
+                });
+            });
+            allRuns.sort((a, b) => a.start - b.start);
+
+            const merged = {
+                aliases: aliases,
+                traces: allTraces,
+                skipped_details: allSkippedDetails,
+                runs: allRuns,
+                start: mergedStart,
+                end: mergedEnd,
+            };
+
+            // Show info panel
+            const infoEl = document.getElementById('pvlog-resolve-info');
+            let infoHtml = '<div class="pvlog-info-chips">';
+            merged.traces.forEach(t => {
+                infoHtml += `<span class="pv-chip pv-chip-active">${t.pv} <small>(${t.count.toLocaleString()} pts)</small></span>`;
+            });
+            merged.skipped_details.forEach(s => {
+                const shortPv = pvShortLabel(s.pv);
+                const reason = s.reason || '< 2 data points';
+                infoHtml += `<span class="pv-chip pv-chip-skipped" title="${reason}">${shortPv} <small>(${reason})</small></span>`;
+            });
+            infoHtml += '</div>';
+            if (merged.runs.length) {
+                const shown = merged.runs.filter(r => (r.end - r.start) >= MIN_RUN_DURATION_S).length;
+                const minLabel = MIN_RUN_DURATION_S >= 60 ? `${Math.round(MIN_RUN_DURATION_S/60)} min` : `${MIN_RUN_DURATION_S}s`;
+                infoHtml += `<small class="form-hint">${merged.runs.length} acquisition block(s), ${shown} shown (≥ ${minLabel}).</small>`;
+            }
+            infoEl.innerHTML = infoHtml;
+            infoEl.style.display = 'block';
+
+            // Auto-fill title from selected labels
+            const titleEl = document.getElementById('pvlog-title');
+            if (!titleEl.value) {
+                const labels = Array.from(checkboxes).map(cb => cb.parentElement.textContent.trim());
+                titleEl.value = labels.join(' + ');
+            }
+
+            renderPVLogPlot(merged);
+
+            document.getElementById('pvlog-chart-container').scrollIntoView({behavior: 'smooth', block: 'nearest'});
+        })
+        .catch(err => {
+            console.error('PV resolve error:', err);
+            status.textContent = 'Resolve failed – check console';
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = '🔍 Fetch & Plot';
+        });
+}
+
+/**
+ * Build and render a Plotly chart from merged resolve data.
+ * Each trace gets its own y-axis (labelled PV name + units).
+ * Axes alternate left/right; extra axes get offset positions.
+ * Handles NaN gaps and run-boundary shading.
+ */
+function renderPVLogPlot(data) {
+    const status = document.getElementById('pvlog-status');
+
+    if (!data.traces || data.traces.length === 0) {
+        status.textContent = 'No active PVs found for the selected categories.';
+        return;
+    }
+
+    const cfg = buildPVLogPlotConfig(data, {height: 400});
+
+    // --- Render ---
+    const chartEl = document.getElementById('pvlog-chart');
+    const container = document.getElementById('pvlog-chart-container');
+    container.style.display = 'block';
+
+    Plotly.newPlot(chartEl, cfg.traces, cfg.layout, {
+        responsive: true,
+        displayModeBar: true,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+    });
+
+    // Store for saving
+    window._pvlogLastData = data;
+    document.getElementById('pvlog-save-btn').disabled = false;
+
+    const total = data.traces.reduce((s, t) => s + t.count, 0);
+    const shownRuns = (data.runs || []).filter(r => (r.end - r.start) >= MIN_RUN_DURATION_S).length;
+    status.textContent = `${data.traces.length} PV(s), ${total.toLocaleString()} points, ${shownRuns} run(s) shown`;
+}
+
+
+function savePVLogEntry(xRange) {
+    if (!window._pvlogLastData) return;
+
+    const title = document.getElementById('pvlog-title')?.value || '';
+    const status = document.getElementById('pvlog-status');
+    status.textContent = 'Saving…';
+
+    const saveData = Object.assign({}, window._pvlogLastData);
+    if (xRange) {
+        saveData.x_range = xRange;
+    }
+
+    fetch('/entries/api/create/pvlog', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            title: title,
+            data: saveData,
+        }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            status.textContent = `Error: ${data.error}`;
+        } else {
+            status.textContent = 'Saved!';
+            _flagNewEntry();
+            setTimeout(() => location.reload(), 500);
+        }
+    })
+    .catch(err => {
+        console.error('PV save error:', err);
+        status.textContent = 'Save failed';
+    });
+}
+
+// ============ PV Log Viewer Modal ============
+
+// Current data being viewed in the PV modal
+window._pvlogViewerData = null;
+window._pvlogViewerXRange = null;
+
+/**
+ * Build Plotly traces + layout from PV data, shared by both LHS chart and viewer.
+ * Returns {traces, layout}.
+ */
+function buildPVLogPlotConfig(data, opts) {
+    opts = opts || {};
+    const chartHeight = opts.height || 400;
+    const xRange = opts.xRange || null;
+
+    const TRACE_COLORS = [
+        '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
+        '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
+    ];
+
+    const nTraces = data.traces.length;
+
+    const traces = data.traces.map((t, i) => ({
+        x: t.x.map(ts => new Date(ts * 1000)),
+        y: t.y.map(v => (v === null || v === undefined || Number.isNaN(v)) ? null : v),
+        name: pvShortLabel(t.pv),
+        type: 'scatter',
+        mode: 'lines',
+        connectgaps: false,
+        line: {color: TRACE_COLORS[i % TRACE_COLORS.length], width: 1.5},
+        yaxis: i === 0 ? 'y' : 'y' + (i + 1),
+    }));
+
+    const extraLeft  = Math.max(0, Math.floor(nTraces / 2) - 1);
+    const extraRight = Math.max(0, Math.floor((nTraces - 1) / 2) - 1);
+    const marginL = 60 + extraLeft * 55;
+    const marginR = 60 + extraRight * 55;
+
+    const layout = {
+        margin: {l: marginL, r: marginR, t: 10, b: 40},
+        height: chartHeight,
+        showlegend: true,
+        legend: {
+            orientation: 'h', x: 0.5, xanchor: 'center',
+            y: 1, yanchor: 'top',
+            bgcolor: 'rgba(255,255,255,0.7)',
+        },
+        xaxis: {type: 'date', title: ''},
+        shapes: [],
+        annotations: [],
+    };
+
+    // Apply x-range if provided
+    if (xRange && xRange.length === 2) {
+        layout.xaxis.range = [new Date(xRange[0]).toISOString(), new Date(xRange[1]).toISOString()];
+    }
+
+    // One y-axis per trace
+    data.traces.forEach((t, i) => {
+        const key = i === 0 ? 'yaxis' : 'yaxis' + (i + 1);
+        const side = i % 2 === 0 ? 'left' : 'right';
+        const label = pvShortLabel(t.pv);
+        const units = t.units || '';
+        const title = units ? `${label} (${units})` : label;
+        const color = TRACE_COLORS[i % TRACE_COLORS.length];
+
+        const axis = {
+            title: {text: title, font: {color: color, size: 12}},
+            tickfont: {color: color},
+            side: side,
+            overlaying: i === 0 ? undefined : 'y',
+            showgrid: i === 0,
+        };
+        if (i >= 2) {
+            axis.anchor = 'free';
+            if (side === 'left') {
+                axis.position = Math.floor(i / 2) * 0.07;
+            } else {
+                axis.position = 1 - Math.floor((i - 1) / 2) * 0.07;
+            }
+        }
+        layout[key] = axis;
+    });
+
+    // Run-boundary shading – recalculate labels based on visible range
+    addRunBoundaries(data, layout, xRange);
+
+    return {traces, layout};
+}
+
+/**
+ * Adds run-boundary shapes and annotations to layout.
+ * If xRange is given, only shows runs within that range and recalculates
+ * label overlap based on the visible window width.
+ */
+function addRunBoundaries(data, layout, xRange) {
+    layout.shapes = layout.shapes.filter(s => !s._pvrun);
+    layout.annotations = layout.annotations.filter(a => !a._pvrun);
+
+    if (!data.runs || data.runs.length === 0) return;
+
+    // Determine visible range
+    let rangeStart, rangeEnd;
+    if (xRange && xRange.length === 2) {
+        rangeStart = new Date(xRange[0]).getTime() / 1000;
+        rangeEnd   = new Date(xRange[1]).getTime() / 1000;
+    } else {
+        // Use the full data range
+        const allTimes = data.traces.flatMap(t => t.x);
+        rangeStart = Math.min(...allTimes);
+        rangeEnd   = Math.max(...allTimes);
+    }
+
+    const visibleRuns = data.runs.filter(r => {
+        const dur = r.end - r.start;
+        if (dur < MIN_RUN_DURATION_S) return false;
+        // At least partially overlaps visible range
+        return r.end > rangeStart && r.start < rangeEnd;
+    });
+
+    // Assign a stable colour per run_number (same run = same colour even
+    // if it has multiple acquisition segments).
+    const runColorMap = {};
+    let colorIdx = 0;
+    visibleRuns.forEach(r => {
+        if (!(r.run_number in runColorMap)) {
+            runColorMap[r.run_number] = RUN_COLORS[colorIdx % RUN_COLORS.length];
+            colorIdx++;
+        }
+    });
+
+    const totalRange = (rangeEnd - rangeStart) || 1;
+    const minLabelFrac = 0.025;
+    // Track which run numbers have already been labelled
+    const labelledRuns = new Set();
+    let lastLabelEnd = -Infinity;
+
+    visibleRuns.forEach(run => {
+        const x0 = new Date(run.start * 1000).toISOString();
+        const x1 = new Date(run.end   * 1000).toISOString();
+
+        layout.shapes.push({
+            type: 'rect',
+            xref: 'x', yref: 'paper',
+            x0, x1, y0: 0, y1: 1,
+            fillcolor: runColorMap[run.run_number],
+            line: {width: 0},
+            layer: 'below',
+            _pvrun: true,
+        });
+
+        // Label: show once per run_number, on the first visible segment
+        if (!labelledRuns.has(run.run_number)) {
+            const runMid = (run.start + run.end) / 2;
+            const fracFromLast = (run.start - lastLabelEnd) / totalRange;
+            if (fracFromLast >= minLabelFrac || lastLabelEnd === -Infinity) {
+                layout.annotations.push({
+                    x: new Date(runMid * 1000).toISOString(),
+                    y: 0.02,
+                    xref: 'x', yref: 'paper',
+                    text: String(run.run_number),
+                    showarrow: false,
+                    font: {size: 10, color: '#555'},
+                    yanchor: 'bottom',
+                    textangle: -90,
+                    opacity: 0.8,
+                    _pvrun: true,
+                });
+                lastLabelEnd = run.end;
+                labelledRuns.add(run.run_number);
+            }
+        }
+    });
+}
+
+/**
+ * Open PV Log viewer modal for the LHS chart data.
+ */
+function openPVLogViewer() {
+    if (!window._pvlogLastData) return;
+    _openPVLogViewerWithData(window._pvlogLastData, 'LHS');
+}
+
+/**
+ * Open PV Log viewer modal for a saved timeline entry.
+ * Called from _pvlog_content.html expand buttons.
+ */
+function openPVLogViewerForEntry(entryId) {
+    const el = document.getElementById('pvlog-entry-chart-' + entryId);
+    if (!el) return;
+    // Retrieve the data stashed on the element by the IIFE
+    const data = el._pvlogData;
+    if (!data) {
+        console.warn('No PV data found for entry', entryId);
+        return;
+    }
+    _openPVLogViewerWithData(data, 'entry-' + entryId);
+}
+
+/**
+ * Internal: open PV Log viewer modal with given data.
+ */
+function _openPVLogViewerWithData(data, source) {
+    window._pvlogViewerData = data;
+    window._pvlogViewerSource = source;
+    window._pvlogViewerXRange = data.x_range || null;
+
+    const modal = document.getElementById('pvlog-viewer-modal');
+    modal.style.display = 'flex';
+
+    // Title
+    const nPVs = data.traces.length;
+    const title = nPVs === 1
+        ? `📈 PV: ${pvShortLabel(data.traces[0].pv)}`
+        : `📈 ${nPVs} PV(s)`;
+    document.getElementById('pvlog-viewer-title').textContent = title;
+
+    // Render full-screen plot
+    const container = document.getElementById('pvlog-viewer-container');
+    const modalBody = container.parentElement;
+    const plotHeight = Math.max(400, modalBody.clientHeight - 20);
+
+    const cfg = buildPVLogPlotConfig(data, {height: plotHeight, xRange: window._pvlogViewerXRange});
+
+    Plotly.newPlot(container, cfg.traces, cfg.layout, {
+        responsive: true,
+        displayModeBar: true,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+        scrollZoom: true,
+    });
+
+    // Listen for zoom/pan to recalculate run labels
+    let _pvlogRelayoutGuard = false;
+    container.on('plotly_relayout', function(eventData) {
+        if (!eventData || _pvlogRelayoutGuard) return;
+
+        let newRange = null;
+        if (eventData['xaxis.range[0]'] && eventData['xaxis.range[1]']) {
+            newRange = [eventData['xaxis.range[0]'], eventData['xaxis.range[1]']];
+        } else if (eventData['xaxis.range']) {
+            newRange = eventData['xaxis.range'];
+        } else if (eventData['xaxis.autorange']) {
+            // Reset to full range
+            newRange = null;
+        } else {
+            // Ignore relayout events that don't affect x-axis (e.g., our own shapes update)
+            return;
+        }
+
+        window._pvlogViewerXRange = newRange;
+
+        // Recalculate run labels for the new visible range
+        const curLayout = container.layout || {};
+        addRunBoundaries(window._pvlogViewerData, curLayout, newRange);
+        _pvlogRelayoutGuard = true;
+        Plotly.relayout(container, {
+            shapes: curLayout.shapes,
+            annotations: curLayout.annotations,
+        }).then(() => { _pvlogRelayoutGuard = false; });
+    });
+
+    // Update info
+    const total = data.traces.reduce((s, t) => s + t.count, 0);
+    document.getElementById('pvlog-viewer-info').textContent =
+        `${nPVs} PV(s), ${total.toLocaleString()} points — zoom/pan to explore, then save`;
+}
+
+/**
+ * Close PV Log viewer modal.
+ */
+function closePVLogViewer() {
+    document.getElementById('pvlog-viewer-modal').style.display = 'none';
+    Plotly.purge(document.getElementById('pvlog-viewer-container'));
+    window._pvlogViewerData = null;
+    window._pvlogViewerXRange = null;
+}
+
+/**
+ * Save from the PV Log viewer — captures the current zoom range.
+ */
+function savePVLogFromViewer() {
+    if (!window._pvlogViewerData) return;
+
+    // If source is LHS, use savePVLogEntry with x_range
+    const xRange = window._pvlogViewerXRange;
+    window._pvlogLastData = window._pvlogViewerData;
+    closePVLogViewer();
+    savePVLogEntry(xRange);
+}
 
 </script>
 {% endblock %}

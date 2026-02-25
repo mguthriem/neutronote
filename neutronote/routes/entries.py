@@ -3,7 +3,9 @@ Entries blueprint – handles the main split-view interface and entry CRUD.
 """
 
 import json
+import logging
 import os
+import shutil
 import uuid
 
 from flask import (
@@ -19,11 +21,13 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 
-from ..app import allowed_file
+from ..app import allowed_file, IPTS_BASE_PATH, ALLOWED_EXTENSIONS
 from ..models import Entry, NotebookConfig, db
 from ..services.metadata import get_run_metadata
 from ..services.data import discover_state_ids, discover_reduced_runs, get_run_metadata_lazy, get_run_metadata_quick
 from ..services.kernel import get_kernel_manager
+
+logger = logging.getLogger(__name__)
 
 bp = Blueprint("entries", __name__, url_prefix="/entries")
 
@@ -31,9 +35,16 @@ bp = Blueprint("entries", __name__, url_prefix="/entries")
 @bp.route("/")
 def index():
     """Main split-view: entry creation on left, timeline on right."""
+    from neutronote.services.pvlog import SNAP_PV_ALIASES
+
     config = NotebookConfig.get_config()
     entries = Entry.query.order_by(Entry.created_at.asc()).all()
-    return render_template("entries/index.html", entries=entries, config=config)
+    return render_template(
+        "entries/index.html",
+        entries=entries,
+        config=config,
+        aliases=SNAP_PV_ALIASES,
+    )
 
 
 @bp.route("/create/text", methods=["POST"])
@@ -55,6 +66,8 @@ def setup_notebook():
     """Set or update the notebook IPTS configuration."""
     ipts_str = request.form.get("ipts", "").strip()
     notebook_title = request.form.get("notebook_title", "").strip() or None
+    experiment_start_str = request.form.get("experiment_start", "").strip()
+    experiment_end_str = request.form.get("experiment_end", "").strip()
 
     if not ipts_str:
         flash("Please enter an IPTS number.", "error")
@@ -75,11 +88,32 @@ def setup_notebook():
         flash(f"IPTS folder not found: {ipts_path}", "error")
         return redirect(url_for("entries.index"))
 
+    # Parse optional experiment dates
+    from datetime import datetime, timezone
+    experiment_start = None
+    experiment_end = None
+    if experiment_start_str:
+        try:
+            experiment_start = datetime.strptime(experiment_start_str, "%Y-%m-%d")
+        except ValueError:
+            flash("Invalid start date format.", "error")
+            return redirect(url_for("entries.index"))
+    if experiment_end_str:
+        try:
+            experiment_end = datetime.strptime(experiment_end_str, "%Y-%m-%d")
+        except ValueError:
+            flash("Invalid end date format.", "error")
+            return redirect(url_for("entries.index"))
+    if experiment_start and experiment_end and experiment_end < experiment_start:
+        flash("End date must be after start date.", "error")
+        return redirect(url_for("entries.index"))
+
     # Update the notebook config
     config = NotebookConfig.get_config()
     config.ipts = ipts
     config.title = notebook_title
-    from datetime import datetime, timezone
+    config.experiment_start = experiment_start
+    config.experiment_end = experiment_end
     config.updated_at = datetime.now(timezone.utc)
     db.session.commit()
 
@@ -176,6 +210,126 @@ def create_image():
 def uploaded_file(filename):
     """Serve uploaded images."""
     return send_from_directory(current_app.config["UPLOAD_FOLDER"], filename)
+
+
+# =============================================================================
+# Server-side file browser for image selection
+# =============================================================================
+
+def _get_ipts_shared_root():
+    """Return the IPTS shared directory root, or None if not configured."""
+    ipts = current_app.config.get("IPTS")
+    if not ipts:
+        return None
+    return os.path.join(IPTS_BASE_PATH, f"IPTS-{ipts}", "shared")
+
+
+IMAGE_EXTENSIONS = {f".{ext}" for ext in ALLOWED_EXTENSIONS}
+
+
+@bp.route("/api/browse", methods=["GET"])
+def api_browse_files():
+    """Browse the IPTS shared directory for images.
+
+    Query params:
+        path: relative path within the shared directory (default: "")
+
+    Returns JSON: {root, path, parent, dirs: [{name}], files: [{name, size}]}
+    """
+    shared_root = _get_ipts_shared_root()
+    if not shared_root:
+        return jsonify(error="IPTS not configured"), 400
+
+    rel_path = request.args.get("path", "").strip("/")
+    browse_dir = os.path.normpath(os.path.join(shared_root, rel_path))
+
+    # Security: ensure we stay within the shared root
+    if not browse_dir.startswith(shared_root):
+        return jsonify(error="Access denied"), 403
+
+    if not os.path.isdir(browse_dir):
+        return jsonify(error="Directory not found"), 404
+
+    dirs = []
+    files = []
+    try:
+        for item in sorted(os.listdir(browse_dir)):
+            full = os.path.join(browse_dir, item)
+            if os.path.isdir(full):
+                # Skip hidden directories and the neutronote storage folder
+                if item.startswith(".") or item == "neutronote":
+                    continue
+                dirs.append({"name": item})
+            elif os.path.isfile(full):
+                ext = os.path.splitext(item)[1].lower()
+                if ext in IMAGE_EXTENSIONS:
+                    size = os.path.getsize(full)
+                    files.append({"name": item, "size": size})
+    except PermissionError:
+        return jsonify(error="Permission denied"), 403
+
+    # Build parent path for "up" navigation
+    parent = os.path.dirname(rel_path) if rel_path else None
+
+    return jsonify(
+        root=f"IPTS-{current_app.config['IPTS']}/shared",
+        path=rel_path,
+        parent=parent,
+        dirs=dirs,
+        files=files,
+    )
+
+
+@bp.route("/api/pick-image", methods=["POST"])
+def api_pick_image():
+    """Copy a server-side image into the uploads folder and create an entry.
+
+    JSON body: {path: "relative/path/to/image.png", caption: "optional"}
+    """
+    data = request.get_json(silent=True) or {}
+    rel_path = data.get("path", "").strip("/")
+    caption = data.get("caption", "").strip() or None
+
+    if not rel_path:
+        return jsonify(error="No file path provided"), 400
+
+    shared_root = _get_ipts_shared_root()
+    if not shared_root:
+        return jsonify(error="IPTS not configured"), 400
+
+    src = os.path.normpath(os.path.join(shared_root, rel_path))
+
+    # Security: stay within shared root
+    if not src.startswith(shared_root):
+        return jsonify(error="Access denied"), 403
+
+    if not os.path.isfile(src):
+        return jsonify(error="File not found"), 404
+
+    filename = os.path.basename(src)
+    if not allowed_file(filename):
+        return jsonify(error="Invalid file type"), 400
+
+    # Check file size (16 MB limit)
+    if os.path.getsize(src) > current_app.config.get("MAX_CONTENT_LENGTH", 16 * 1024 * 1024):
+        return jsonify(error="File too large (max 16 MB)"), 400
+
+    # Copy to uploads with unique name
+    ext = filename.rsplit(".", 1)[1].lower()
+    unique_name = f"{uuid.uuid4().hex}.{ext}"
+    dest = os.path.join(current_app.config["UPLOAD_FOLDER"], unique_name)
+    shutil.copy2(src, dest)
+
+    # Create the entry
+    entry = Entry(
+        type=Entry.TYPE_IMAGE,
+        title=caption,
+        body=unique_name,
+    )
+    db.session.add(entry)
+    db.session.commit()
+
+    return jsonify(ok=True, entry_id=entry.id)
 
 
 # =============================================================================
@@ -811,4 +965,198 @@ def api_get_multi_plot_data():
             })
 
     return jsonify(multi_data)
+
+
+# ---------- PV Log API endpoints ----------
+
+
+@bp.route("/api/pvlog/search", methods=["GET"])
+def pvlog_search():
+    """Search for PV channel names.
+
+    Query params:
+        pattern: PV name or partial name (will be wrapped in % for LIKE)
+    Returns:
+        JSON {results: [pv_name, ...]} or {error: ...}
+    """
+    pattern = request.args.get("pattern", "").strip()
+    if not pattern:
+        return jsonify({"error": "No search pattern provided", "results": []})
+
+    # Check if it's an alias first
+    from neutronote.services.pvlog import PVLogService
+
+    if PVLogService.is_alias(pattern):
+        aliases = PVLogService.list_aliases()
+        alias_info = aliases[pattern.lower()]
+        return jsonify({"results": alias_info["pvs"], "alias": pattern.lower()})
+
+    # Otherwise, search Oracle
+    try:
+        svc = PVLogService()
+        results = svc.search_channels(pattern)
+        return jsonify({"results": results})
+    except Exception as e:
+        return jsonify({"error": str(e), "results": []})
+
+
+@bp.route("/api/pvlog/query", methods=["GET"])
+def pvlog_query():
+    """Query PV time-series data.
+
+    Query params:
+        pv: PV name(s) – can be repeated
+        start: ISO datetime string
+        end: ISO datetime string
+    Returns:
+        JSON {traces: [{name, x, y, units, dtype, count}, ...]}
+    """
+    pv_names = request.args.getlist("pv")
+    start_str = request.args.get("start", "")
+    end_str = request.args.get("end", "")
+
+    if not pv_names:
+        return jsonify({"error": "No PV names provided"})
+
+    from datetime import datetime
+
+    try:
+        start = datetime.fromisoformat(start_str) if start_str else None
+        end = datetime.fromisoformat(end_str) if end_str else None
+    except ValueError as e:
+        return jsonify({"error": f"Invalid date format: {e}"})
+
+    if not start or not end:
+        # Fall back to notebook config dates
+        config = NotebookConfig.get_config()
+        if config.has_dates:
+            start = start or config.experiment_start
+            end = end or config.experiment_end
+        else:
+            return jsonify({"error": "No time range specified and no experiment dates configured"})
+
+    max_points = request.args.get("max_points", 5000, type=int)
+
+    from neutronote.services.pvlog import PVLogService
+
+    try:
+        svc = PVLogService()
+        traces = []
+        for pv in pv_names:
+            ts = svc.query_pv(pv, start, end, max_points=max_points)
+            traces.append(ts.to_plot_json())
+        return jsonify({
+            "traces": traces,
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+
+@bp.route("/api/pvlog/aliases", methods=["GET"])
+def pvlog_aliases():
+    """Return the PV alias registry."""
+    from neutronote.services.pvlog import PVLogService
+
+    return jsonify(PVLogService.list_aliases())
+
+
+@bp.route("/api/pvlog/resolve", methods=["GET"])
+def pvlog_resolve():
+    """Resolve an alias: query all candidate PVs, return active traces + runs.
+
+    Query params:
+        alias: alias name (e.g. "pressure", "temperature")
+        start: ISO datetime (optional – falls back to experiment dates)
+        end: ISO datetime (optional)
+        max_points: int (default 5000)
+
+    Returns JSON:
+        {
+            alias: str,
+            traces: [{name, pv, x, y, units, dtype, count}, ...],
+            runs: [{run_number, start, end}, ...],
+            start: ISO str,
+            end: ISO str,
+            skipped: [pv_names with <2 points],
+        }
+    """
+    alias = request.args.get("alias", "").strip()
+    if not alias:
+        return jsonify({"error": "No alias specified"})
+
+    start_str = request.args.get("start", "")
+    end_str = request.args.get("end", "")
+    max_points = request.args.get("max_points", 5000, type=int)
+
+    from datetime import datetime as _dt
+    try:
+        start = _dt.fromisoformat(start_str) if start_str else None
+        end = _dt.fromisoformat(end_str) if end_str else None
+    except ValueError as e:
+        return jsonify({"error": f"Invalid date format: {e}"})
+
+    if not start or not end:
+        config = NotebookConfig.get_config()
+        if config.has_dates:
+            start = start or config.experiment_start
+            end = end or config.experiment_end
+        else:
+            return jsonify({"error": "No time range and no experiment dates configured"})
+
+    from neutronote.services.pvlog import PVLogService, SNAP_PV_ALIASES
+
+    try:
+        svc = PVLogService()
+
+        # Resolve alias → active PV traces (with validity filtering)
+        active, skipped_info = svc.resolve_alias(alias, start, end, max_points=max_points)
+        traces = [ts.to_plot_json() for ts in active]
+
+        # Build skipped list: PV names + reasons
+        skipped = [s["pv"] for s in skipped_info]
+        skipped_details = skipped_info  # [{pv, reason}, ...]
+
+        # Run intervals for the same time range
+        runs = svc.query_runs(start, end)
+
+        return jsonify({
+            "alias": alias.lower(),
+            "traces": traces,
+            "runs": runs,
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "skipped": skipped,
+            "skipped_details": skipped_details,
+        })
+    except Exception as e:
+        import traceback
+        logger.error("pvlog_resolve error: %s", traceback.format_exc())
+        return jsonify({"error": str(e)})
+
+
+@bp.route("/api/create/pvlog", methods=["POST"])
+def create_pvlog():
+    """Save a PV Log entry to the timeline.
+
+    Expects JSON body: {title: str, data: {traces: [...], start, end}}
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"})
+
+    title = data.get("title", "").strip() or "PV Log"
+    plot_data = data.get("data", {})
+
+    # Store the full plot data as JSON in the entry body
+    entry = Entry(
+        type=Entry.TYPE_PVLOG,
+        title=title,
+        body=json.dumps(plot_data),
+    )
+    db.session.add(entry)
+    db.session.commit()
+
+    return jsonify({"success": True, "entry_id": entry.id})
 

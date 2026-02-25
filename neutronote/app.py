@@ -32,6 +32,43 @@ def get_ipts_notebook_path(ipts: str, base_path: str = None) -> str:
     return os.path.join(base, f"IPTS-{ipts}", "shared", "neutronote")
 
 
+def _migrate_db(app):
+    """Run lightweight schema migrations for SQLite.
+
+    Adds new columns that may not exist in older databases.
+    Safe to call multiple times – skips columns that already exist.
+    """
+    import sqlite3
+
+    from .models import db as _db
+
+    uri = app.config["SQLALCHEMY_DATABASE_URI"]
+    # Only handle sqlite URIs
+    if not uri.startswith("sqlite"):
+        return
+
+    db_path = uri.replace("sqlite:///", "")
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Check existing columns in notebook_config
+        cursor.execute("PRAGMA table_info(notebook_config)")
+        existing = {row[1] for row in cursor.fetchall()}
+
+        if "experiment_start" not in existing:
+            cursor.execute("ALTER TABLE notebook_config ADD COLUMN experiment_start DATETIME")
+            app.logger.info("Migration: added notebook_config.experiment_start")
+        if "experiment_end" not in existing:
+            cursor.execute("ALTER TABLE notebook_config ADD COLUMN experiment_end DATETIME")
+            app.logger.info("Migration: added notebook_config.experiment_end")
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        app.logger.warning("Migration check failed (non-fatal): %s", e)
+
+
 def create_app(test_config=None, ipts=None):
     """Application factory.
     
@@ -67,6 +104,14 @@ def create_app(test_config=None, ipts=None):
         SECRET_KEY="dev-secret-change-in-production",
         SQLALCHEMY_DATABASE_URI=f"sqlite:///{db_path}",
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
+        # SQLite settings for shared filesystem (GPFS) with multiple users
+        SQLALCHEMY_ENGINE_OPTIONS={
+            "connect_args": {
+                "timeout": 30,  # Wait up to 30s for locks
+                "check_same_thread": False,
+            },
+            "pool_pre_ping": True,  # Check connection is alive before using
+        },
         UPLOAD_FOLDER=upload_folder,
         MAX_CONTENT_LENGTH=16 * 1024 * 1024,  # 16 MB max upload
     )
@@ -76,10 +121,33 @@ def create_app(test_config=None, ipts=None):
 
     # ---- Extensions ----
     from .models import db
+    from sqlalchemy import event
 
     db.init_app(app)
+    
+    # Set SQLite pragmas for better multi-user support on shared filesystem
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        # WAL mode allows concurrent reads while writing
+        cursor.execute("PRAGMA journal_mode=WAL")
+        # Synchronous=NORMAL is a good balance of safety and speed
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        # Busy timeout in milliseconds
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.close()
+    
     with app.app_context():
+        # Register the pragma listener
+        event.listen(db.engine, "connect", set_sqlite_pragma)
         db.create_all()
+        # Run lightweight migrations for new columns
+        _migrate_db(app)
+    
+    # Expire all objects before each request to ensure fresh data
+    # This is important for multi-user scenarios on shared storage
+    @app.before_request
+    def expire_session():
+        db.session.expire_all()
 
     # ---- Blueprints ----
     from .routes import entries
@@ -140,21 +208,55 @@ def main():
     )
     parser.add_argument(
         "--port", "-p",
-        type=int, default=5000,
-        help="Port to run server on (default: 5000)"
+        type=int, default=None,
+        help="Port to run server on (default: auto-allocate in 6000-6999)"
     )
     args = parser.parse_args()
     
     ipts = args.ipts or os.environ.get("NEUTRONOTE_IPTS")
+
+    # Auto-select a free port in the 6000-6999 range when none specified.
+    def _find_free_port(start=6000, end=6999):
+        import socket
+
+        for p in range(start, end + 1):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                try:
+                    s.bind(("127.0.0.1", p))
+                    return p
+                except OSError:
+                    continue
+        return None
+
+    # If port not provided, pick one automatically
+    # If port not provided, pick one automatically from the 6000 range
+    port = args.port
+    if port is None:
+        port = _find_free_port()
+        if port is None:
+            print("No free port found in 6000-6999; defaulting to 6000")
+            port = 6000
+
+    # Try to clear any process listening on the port (best-effort)
+    try:
+        import subprocess
+
+        # Use fuser to kill existing process bound to the port; ignore errors
+        subprocess.run(["fuser", "-k", f"{port}/tcp"], check=False)
+    except Exception:
+        # Non-fatal if fuser not available or kill fails
+        pass
     
     if ipts:
         print(f"📓 neutroNote starting for IPTS-{ipts}")
         print(f"   Storage: {get_ipts_notebook_path(ipts)}")
     else:
         print("📓 neutroNote starting in development mode (local storage)")
-    
+
     app = create_app(ipts=ipts)
-    app.run(debug=True, port=args.port)
+    print(f" * Running on http://127.0.0.1:{port}")
+    app.run(debug=True, port=port)
 
 
 if __name__ == "__main__":

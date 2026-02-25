@@ -36,8 +36,9 @@ class Entry(db.Model):
     TYPE_IMAGE = "image"
     TYPE_DATA = "data"
     TYPE_CODE = "code"
+    TYPE_PVLOG = "pvlog"
 
-    TYPES = [TYPE_TEXT, TYPE_HEADER, TYPE_IMAGE, TYPE_DATA, TYPE_CODE]
+    TYPES = [TYPE_TEXT, TYPE_HEADER, TYPE_IMAGE, TYPE_DATA, TYPE_CODE, TYPE_PVLOG]
 
     id = db.Column(db.Integer, primary_key=True)
     type = db.Column(db.String(20), nullable=False, default=TYPE_TEXT)
@@ -104,6 +105,8 @@ class NotebookConfig(db.Model):
     ipts = db.Column(db.String(50), nullable=True)  # e.g., "IPTS-12345"
     instrument = db.Column(db.String(20), nullable=False, default="SNAP")
     title = db.Column(db.String(200), nullable=True)  # Optional notebook title
+    experiment_start = db.Column(db.DateTime, nullable=True)  # Experiment start date
+    experiment_end = db.Column(db.DateTime, nullable=True)  # Experiment end date
     created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = db.Column(db.DateTime, nullable=True)
 
@@ -124,3 +127,22 @@ class NotebookConfig(db.Model):
     def is_configured(self):
         """Return True if IPTS has been set."""
         return self.ipts is not None and self.ipts.strip() != ""
+
+    @property
+    def has_dates(self):
+        """Return True if both experiment start and end dates are set."""
+        return self.experiment_start is not None and self.experiment_end is not None
+
+    @property
+    def experiment_start_str(self):
+        """Return experiment start as YYYY-MM-DD string for form inputs."""
+        if self.experiment_start:
+            return self.experiment_start.strftime("%Y-%m-%d")
+        return ""
+
+    @property
+    def experiment_end_str(self):
+        """Return experiment end as YYYY-MM-DD string for form inputs."""
+        if self.experiment_end:
+            return self.experiment_end.strftime("%Y-%m-%d")
+        return ""
