@@ -27,7 +27,7 @@ ORACLE_USER = os.environ.get("ORACLE_USER", "")
 ORACLE_PASS = os.environ.get("ORACLE_PASS", "")
 
 # ---------------------------------------------------------------------------
-# PV alias registry – friendly names → candidate PVs
+# PV alias registry – loaded from the active instrument plugin
 # ---------------------------------------------------------------------------
 # Each alias may define a "validity" dict with rules for filtering out
 # traces that contain only junk data (e.g. unplugged pressure gauge
@@ -41,54 +41,23 @@ ORACLE_PASS = os.environ.get("ORACLE_PASS", "")
 # mid-IPTS is fine).  Invalid points within a kept trace are replaced
 # with None so Plotly draws gaps.
 # ---------------------------------------------------------------------------
-SNAP_PV_ALIASES: dict[str, dict] = {
-    "pressure": {
-        "label": "Pressure",
-        "units": "bar",
-        "pvs": [
-            "BL3:SE:Teledyne1:Pressure",
-            "BL3:SE:Teledyne2:PressSet",
-            "BL3:SE:PACE1:Pressure",
-        ],
-        "validity": {
-            "min_valid": 0.0,   # pressures in bar must be positive
-            "max_valid": None,
-        },
-    },
-    "temperature": {
-        "label": "Temperature",
-        "units": "K",
-        "pvs": [
-            "BL3:SE:Lakeshore:KRDG0",
-            "BL3:SE:Lakeshore:KRDG2",
-        ],
-        "validity": {
-            "min_valid": 0.0,   # temperatures in K must be positive
-            "max_valid": None,
-        },
-    },
-    "run_number": {
-        "label": "Run Number",
-        "units": "",
-        "pvs": [
-            "BL3:CS:RunControl:LastRunNumber",
-        ],
-    },
-    "run_state": {
-        "label": "Run State",
-        "units": "",
-        "pvs": [
-            "BL3:CS:RunControl:StateEnum",
-        ],
-    },
-    "items": {
-        "label": "ITEMS Proposal",
-        "units": "",
-        "pvs": [
-            "BL3:CS:ITEMS",
-        ],
-    },
-}
+
+
+def _get_instrument():
+    """Return the active InstrumentConfig."""
+    try:
+        from flask import current_app
+
+        return current_app.config["INSTRUMENT"]
+    except (RuntimeError, KeyError):
+        from ..instruments import get_instrument
+
+        return get_instrument(os.environ.get("NEUTRONOTE_INSTRUMENT", "SNAP"))
+
+
+def _get_pv_aliases() -> dict[str, dict]:
+    """Return PV aliases for the active instrument."""
+    return _get_instrument().pv_aliases()
 
 
 # ---------------------------------------------------------------------------
@@ -123,9 +92,7 @@ class PVTimeSeries:
         }
 
 
-def _lttb_downsample(
-    times: list[float], values: list, target: int
-) -> tuple[list, list]:
+def _lttb_downsample(times: list[float], values: list, target: int) -> tuple[list, list]:
     """Downsample using Largest-Triangle-Three-Buckets (LTTB).
 
     Preserves visual shape of the data far better than uniform sampling.
@@ -255,7 +222,9 @@ def _apply_validity_filter(
     ts.values = new_values
     logger.debug(
         "validity_filter(%s): %d/%d valid → kept",
-        ts.name, valid_count, len(ts.values),
+        ts.name,
+        valid_count,
+        len(ts.values),
     )
     return ts, ""
 
@@ -330,7 +299,9 @@ class PVLogService:
             results = [row[0] for row in cur]
             logger.info(
                 "search_channels(%r): %d results in %.2fs",
-                pattern, len(results), time.time() - t0,
+                pattern,
+                len(results),
+                time.time() - t0,
             )
             return results
         finally:
@@ -430,20 +401,27 @@ class PVLogService:
             elapsed = time.time() - t0
             logger.info(
                 "query_pv(%s, %s→%s): %d samples in %.2fs",
-                pv_name, start, end, raw_count, elapsed,
+                pv_name,
+                start,
+                end,
+                raw_count,
+                elapsed,
             )
 
             # Downsample if needed
             if len(times) > max_points and dtype != "string":
                 times, values = _lttb_downsample(times, values, max_points)
                 logger.info(
-                    "query_pv(%s): LTTB %d → %d", pv_name, raw_count, len(times),
+                    "query_pv(%s): LTTB %d → %d",
+                    pv_name,
+                    raw_count,
+                    len(times),
                 )
 
             # Resolve alias name & units
             alias = None
             units = ""
-            for a_info in SNAP_PV_ALIASES.values():
+            for a_info in _get_pv_aliases().values():
                 if pv_name in a_info["pvs"]:
                     alias = a_info["label"]
                     units = a_info.get("units", "")
@@ -476,13 +454,21 @@ class PVLogService:
         where start/end are epoch seconds.  The same run_number may
         appear **more than once** if acquisition was paused and resumed.
         """
+        instrument = _get_instrument()
+
         # 1. Fetch run-number transitions
         run_ts = self.query_pv(
-            "BL3:CS:RunControl:LastRunNumber", start, end, max_points=50000,
+            instrument.run_number_pv(),
+            start,
+            end,
+            max_points=50000,
         )
         # 2. Fetch state-enum transitions
         state_ts = self.query_pv(
-            "BL3:CS:RunControl:StateEnum", start, end, max_points=50000,
+            instrument.run_state_pv(),
+            start,
+            end,
+            max_points=50000,
         )
 
         if run_ts.is_empty:
@@ -516,11 +502,13 @@ class PVLogService:
         raw_runs: list[dict] = []
         for i, edge in enumerate(run_edges):
             run_end = run_edges[i + 1]["time"] if i + 1 < len(run_edges) else end_epoch
-            raw_runs.append({
-                "run_number": edge["run_number"],
-                "start": edge["time"],
-                "end": run_end,
-            })
+            raw_runs.append(
+                {
+                    "run_number": edge["run_number"],
+                    "start": edge["time"],
+                    "end": run_end,
+                }
+            )
 
         # If we have no state data, fall back to the raw intervals
         if state_ts.is_empty:
@@ -563,7 +551,8 @@ class PVLogService:
 
         logger.info(
             "query_runs: %d raw run(s), %d collecting interval(s)",
-            len(raw_runs), len(collecting_intervals),
+            len(raw_runs),
+            len(collecting_intervals),
         )
 
         # --- Intersect raw runs with collecting intervals ---
@@ -576,11 +565,13 @@ class PVLogService:
                 seg_start = max(run["start"], coll_start)
                 seg_end = min(run["end"], coll_end)
                 if seg_start < seg_end:
-                    result.append({
-                        "run_number": run["run_number"],
-                        "start": seg_start,
-                        "end": seg_end,
-                    })
+                    result.append(
+                        {
+                            "run_number": run["run_number"],
+                            "start": seg_start,
+                            "end": seg_end,
+                        }
+                    )
 
         logger.info(
             "query_runs: %d acquisition segment(s) after intersection",
@@ -606,10 +597,11 @@ class PVLogService:
             where each skipped entry is {"pv": str, "reason": str}.
         """
         alias_lower = alias.lower()
-        if alias_lower not in SNAP_PV_ALIASES:
+        pv_aliases = _get_pv_aliases()
+        if alias_lower not in pv_aliases:
             return [], []
 
-        info = SNAP_PV_ALIASES[alias_lower]
+        info = pv_aliases[alias_lower]
         validity = info.get("validity")
         results = []
         skipped: list[dict] = []
@@ -619,7 +611,9 @@ class PVLogService:
             if len(ts.times) < 2:
                 logger.debug(
                     "resolve_alias(%s): skipped %s (%d points)",
-                    alias, pv, len(ts.times),
+                    alias,
+                    pv,
+                    len(ts.times),
                 )
                 skipped.append({"pv": pv, "reason": f"only {len(ts.times)} point(s)"})
                 continue
@@ -629,7 +623,9 @@ class PVLogService:
             if filtered is None:
                 logger.info(
                     "resolve_alias(%s): skipped %s – %s",
-                    alias, pv, reason,
+                    alias,
+                    pv,
+                    reason,
                 )
                 skipped.append({"pv": pv, "reason": reason})
                 continue
@@ -648,10 +644,10 @@ class PVLogService:
 
     @staticmethod
     def list_aliases() -> dict[str, dict]:
-        """Return the alias registry."""
-        return SNAP_PV_ALIASES
+        """Return the alias registry for the active instrument."""
+        return _get_pv_aliases()
 
     @staticmethod
     def is_alias(name: str) -> bool:
         """Check if a name is a known alias."""
-        return name.lower() in SNAP_PV_ALIASES
+        return name.lower() in _get_pv_aliases()

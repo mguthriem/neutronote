@@ -1,14 +1,11 @@
 """
 Data retrieval and reduction service.
 
-Wraps snapwrap / mantid calls to load workspaces, reduce data, and extract arrays
+Wraps mantid calls to load workspaces, reduce data, and extract arrays
 suitable for plotting. Keep all mantid imports inside this module.
 
-File paths
-----------
-- Full NeXus: /SNS/SNAP/<IPTS>/nexus/SNAP_<run>.nxs.h5
-- Lite NeXus: /SNS/SNAP/<IPTS>/shared/lite/SNAP_<run>.lite.nxs.h5  (commonly used)
-- Reduced (SNAPRed): /SNS/SNAP/<IPTS>/shared/SNAPRed/<stateID>/lite/<run>/<timestamp>/
+All instrument-specific path conventions are resolved via the active
+``InstrumentConfig`` (see ``neutronote.instruments``).
 """
 
 from __future__ import annotations
@@ -21,8 +18,19 @@ from typing import Any
 
 import numpy as np
 
-# Default to Lite files for faster loading
-SNAP_DATA_ROOT = Path("/SNS/SNAP")
+
+def _get_instrument():
+    """Return the active InstrumentConfig.
+
+    Tries Flask's current_app first; falls back to the default instrument.
+    """
+    try:
+        from flask import current_app
+        return current_app.config["INSTRUMENT"]
+    except (RuntimeError, KeyError):
+        from ..instruments import get_instrument
+        import os
+        return get_instrument(os.environ.get("NEUTRONOTE_INSTRUMENT", "SNAP"))
 
 
 # =============================================================================
@@ -233,7 +241,8 @@ def get_run_metadata_quick(ipts: str, run_number: int) -> dict[str, Any]:
         return {"title": "", "duration": 0.0, "start_time": ""}
     
     # Try native file first (has complete metadata)
-    native_path = SNAP_DATA_ROOT / ipts / "nexus" / f"SNAP_{run_number}.nxs.h5"
+    instrument = _get_instrument()
+    native_path = instrument.data_root / ipts / "nexus" / instrument.nexus_filename(run_number)
     
     if not native_path.exists():
         return {"title": "", "duration": 0.0, "start_time": ""}
@@ -272,9 +281,13 @@ def get_run_metadata_quick(ipts: str, run_number: int) -> dict[str, Any]:
 # =============================================================================
 
 
-def get_snapred_root(ipts: str) -> Path:
-    """Get the SNAPRed output folder for an IPTS."""
-    return SNAP_DATA_ROOT / ipts / "shared" / "SNAPRed"
+def get_reduced_data_root(ipts: str) -> Path | None:
+    """Get the reduced data output folder for an IPTS.
+
+    Delegates to the active instrument config.
+    """
+    instrument = _get_instrument()
+    return instrument.reduced_data_root(ipts)
 
 
 def discover_state_ids(ipts: str) -> list[str]:
@@ -293,9 +306,9 @@ def discover_state_ids(ipts: str) -> list[str]:
     list[str]
         List of state ID strings found in the SNAPRed folder.
     """
-    snapred_root = get_snapred_root(ipts)
+    snapred_root = get_reduced_data_root(ipts)
 
-    if not snapred_root.exists():
+    if not snapred_root or not snapred_root.exists():
         return []
 
     state_ids = []
@@ -336,7 +349,10 @@ def discover_reduced_runs(
         List of ReducedRun objects, sorted by run number.
     """
     mode = "lite" if lite else "native"
-    state_root = get_snapred_root(ipts) / state_id / mode
+    reduced_root = get_reduced_data_root(ipts)
+    if reduced_root is None:
+        return []
+    state_root = reduced_root / state_id / mode
 
     if not state_root.exists():
         return []
@@ -465,7 +481,7 @@ def discover_all_reduced_data(ipts: str, lite: bool = True) -> list[StateInfo]:
 
 def get_state_id_for_run(run_number: int) -> str | None:
     """
-    Get the state ID for a run number using SNAPWrap's stateDef.
+    Get the state ID for a run number using the instrument plugin.
 
     Parameters
     ----------
@@ -477,18 +493,8 @@ def get_state_id_for_run(run_number: int) -> str | None:
     str or None
         The state ID string, or None if it cannot be determined.
     """
-    try:
-        from snapwrap.snapStateMgr import stateDef
-
-        result = stateDef(run_number)
-        if result and len(result) > 0:
-            return result[0]
-    except ImportError:
-        pass
-    except Exception:
-        pass
-
-    return None
+    instrument = _get_instrument()
+    return instrument.get_state_id_for_run(run_number)
 
 
 # =============================================================================
@@ -497,10 +503,9 @@ def get_state_id_for_run(run_number: int) -> str | None:
 
 
 def nexus_path(ipts: str, run_number: int, lite: bool = True) -> Path:
-    """Return the path to a SNAP NeXus file."""
-    if lite:
-        return SNAP_DATA_ROOT / ipts / "shared" / "lite" / f"SNAP_{run_number}.lite.nxs.h5"
-    return SNAP_DATA_ROOT / ipts / "nexus" / f"SNAP_{run_number}.nxs.h5"
+    """Return the path to a NeXus file for the active instrument."""
+    instrument = _get_instrument()
+    return instrument.nexus_path(ipts, run_number, lite=lite)
 
 
 def get_reduced_data(
@@ -629,7 +634,8 @@ def _extract_single_workspace_data(ws) -> dict[str, Any]:
     num_spectra = ws.getNumberHistograms()
 
     # Get axis labels if available
-    x_label = "d-spacing (Å)"  # Default for SNAP reduced data
+    instrument = _get_instrument()
+    x_label = instrument.default_x_label()
     y_label = "Intensity"
 
     try:

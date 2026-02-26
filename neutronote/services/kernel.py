@@ -21,6 +21,7 @@ import psutil
 @dataclass
 class ExecutionResult:
     """Result of executing code in the kernel."""
+
     success: bool
     output: str
     error: Optional[str] = None
@@ -30,25 +31,27 @@ class ExecutionResult:
 @dataclass
 class KernelStatus:
     """Current status of the kernel."""
+
     state: str  # 'starting', 'idle', 'busy', 'dead'
     pid: Optional[int] = None
     uptime_seconds: float = 0.0
     executions_count: int = 0
     last_execution_time: Optional[float] = None
-    
+
     def to_dict(self):
         return {
-            'state': self.state,
-            'pid': self.pid,
-            'uptime_seconds': self.uptime_seconds,
-            'executions_count': self.executions_count,
-            'last_execution_time': self.last_execution_time,
+            "state": self.state,
+            "pid": self.pid,
+            "uptime_seconds": self.uptime_seconds,
+            "executions_count": self.executions_count,
+            "last_execution_time": self.last_execution_time,
         }
 
 
-@dataclass 
+@dataclass
 class MemoryInfo:
     """Memory usage information."""
+
     system_total_gb: float
     system_used_gb: float
     system_percent: float
@@ -56,50 +59,51 @@ class MemoryInfo:
     mantid_percent: float = 0.0  # Percent of system total
     warning: bool = False  # True if usage > 85%
     critical: bool = False  # True if usage > 95%
-    
+
     def to_dict(self):
         return {
-            'system_total_gb': round(self.system_total_gb, 2),
-            'system_used_gb': round(self.system_used_gb, 2),
-            'system_percent': round(self.system_percent, 1),
-            'mantid_used_gb': round(self.mantid_used_gb, 2),
-            'mantid_percent': round(self.mantid_percent, 1),
-            'warning': self.warning,
-            'critical': self.critical,
+            "system_total_gb": round(self.system_total_gb, 2),
+            "system_used_gb": round(self.system_used_gb, 2),
+            "system_percent": round(self.system_percent, 1),
+            "mantid_used_gb": round(self.mantid_used_gb, 2),
+            "mantid_percent": round(self.mantid_percent, 1),
+            "warning": self.warning,
+            "critical": self.critical,
         }
 
 
 @dataclass
 class WorkspaceInfo:
     """Information about a Mantid workspace."""
+
     name: str
     ws_type: str
     num_spectra: int = 0
     num_bins: int = 0
     memory_mb: float = 0.0
-    
+
     def to_dict(self):
         return {
-            'name': self.name,
-            'type': self.ws_type,
-            'num_spectra': self.num_spectra,
-            'num_bins': self.num_bins,
-            'memory_mb': round(self.memory_mb, 2),
+            "name": self.name,
+            "type": self.ws_type,
+            "num_spectra": self.num_spectra,
+            "num_bins": self.num_bins,
+            "memory_mb": round(self.memory_mb, 2),
         }
 
 
 class KernelManager:
     """
     Manages a persistent Python kernel process.
-    
+
     The kernel runs as a subprocess and maintains state across executions.
     Communication happens via stdin/stdout with JSON messages.
     """
-    
+
     # Singleton instance
-    _instance: Optional['KernelManager'] = None
+    _instance: Optional["KernelManager"] = None
     _lock = threading.Lock()
-    
+
     def __new__(cls):
         """Ensure only one KernelManager exists (singleton)."""
         if cls._instance is None:
@@ -108,35 +112,35 @@ class KernelManager:
                     cls._instance = super().__new__(cls)
                     cls._instance._initialized = False
         return cls._instance
-    
+
     def __init__(self):
         if self._initialized:
             return
-        
+
         self._initialized = True
         self._process: Optional[subprocess.Popen] = None
-        self._state = 'dead'
+        self._state = "dead"
         self._start_time: Optional[float] = None
         self._executions_count = 0
         self._last_execution_time: Optional[float] = None
         self._exec_lock = threading.Lock()
-        
+
         # Start the kernel
         self.start()
-    
+
     def start(self) -> bool:
         """Start the kernel process."""
         if self._process is not None and self._process.poll() is None:
             return True  # Already running
-        
-        self._state = 'starting'
-        
+
+        self._state = "starting"
+
         # The kernel runner script
         kernel_script = self._get_kernel_script()
-        
+
         try:
             self._process = subprocess.Popen(
-                [sys.executable, '-c', kernel_script],
+                [sys.executable, "-c", kernel_script],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -144,15 +148,15 @@ class KernelManager:
                 bufsize=1,  # Line buffered
             )
             self._start_time = time.time()
-            self._state = 'idle'
+            self._state = "idle"
             self._executions_count = 0
             print(f"[KernelManager] Kernel started with PID {self._process.pid}")
             return True
         except Exception as e:
             print(f"[KernelManager] Failed to start kernel: {e}")
-            self._state = 'dead'
+            self._state = "dead"
             return False
-    
+
     def _get_kernel_script(self) -> str:
         """Return the Python code that runs in the kernel subprocess."""
         return '''
@@ -321,15 +325,15 @@ while True:
     except Exception as e:
         print(json.dumps({'type': 'error', 'error': str(e)}), flush=True)
 '''
-    
+
     def stop(self) -> bool:
         """Stop the kernel process."""
         if self._process is None:
             return True
-        
+
         try:
             # Try graceful shutdown first
-            self._send_command({'action': 'shutdown'})
+            self._send_command({"action": "shutdown"})
             self._process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             # Force kill
@@ -337,34 +341,34 @@ while True:
             self._process.wait()
         except Exception:
             pass
-        
+
         self._process = None
-        self._state = 'dead'
+        self._state = "dead"
         self._start_time = None
         print("[KernelManager] Kernel stopped")
         return True
-    
+
     def restart(self) -> bool:
         """Restart the kernel process."""
         self.stop()
         return self.start()
-    
+
     def is_alive(self) -> bool:
         """Check if the kernel process is running."""
         if self._process is None:
             return False
         return self._process.poll() is None
-    
+
     def _send_command(self, cmd: dict, timeout: float = 60.0) -> Optional[dict]:
         """Send a command to the kernel and get response."""
         if not self.is_alive():
             return None
-        
+
         try:
             # Send command
-            self._process.stdin.write(json.dumps(cmd) + '\n')
+            self._process.stdin.write(json.dumps(cmd) + "\n")
             self._process.stdin.flush()
-            
+
             # Read response with timeout
             # Note: This is simplified - a production version would use
             # select() or async I/O for proper timeout handling
@@ -375,7 +379,7 @@ while True:
         except Exception as e:
             print(f"[KernelManager] Command error: {e}")
             return None
-    
+
     def execute(self, code: str, timeout: float = 60.0) -> ExecutionResult:
         """Execute code in the kernel."""
         with self._exec_lock:
@@ -383,121 +387,123 @@ while True:
                 if not self.start():
                     return ExecutionResult(
                         success=False,
-                        output='',
-                        error='Kernel is not running and failed to start',
+                        output="",
+                        error="Kernel is not running and failed to start",
                     )
-            
-            self._state = 'busy'
+
+            self._state = "busy"
             start_time = time.time()
-            
+
             try:
-                result = self._send_command({'action': 'execute', 'code': code}, timeout)
+                result = self._send_command({"action": "execute", "code": code}, timeout)
                 execution_time = time.time() - start_time
-                
+
                 if result is None:
                     # Kernel may have died
-                    self._state = 'dead' if not self.is_alive() else 'idle'
+                    self._state = "dead" if not self.is_alive() else "idle"
                     return ExecutionResult(
                         success=False,
-                        output='',
-                        error='No response from kernel',
+                        output="",
+                        error="No response from kernel",
                         execution_time=execution_time,
                     )
-                
+
                 self._executions_count += 1
                 self._last_execution_time = execution_time
-                self._state = 'idle'
-                
-                output = result.get('output', '')
-                error = result.get('error')
+                self._state = "idle"
+
+                output = result.get("output", "")
+                error = result.get("error")
                 if error:
-                    output = output + '\n' + error if output else error
-                
+                    output = output + "\n" + error if output else error
+
                 return ExecutionResult(
-                    success=result.get('success', False),
+                    success=result.get("success", False),
                     output=output,
                     error=error,
                     execution_time=execution_time,
                 )
             except Exception as e:
-                self._state = 'idle' if self.is_alive() else 'dead'
+                self._state = "idle" if self.is_alive() else "dead"
                 return ExecutionResult(
                     success=False,
-                    output='',
+                    output="",
                     error=str(e),
                     execution_time=time.time() - start_time,
                 )
-    
+
     def get_status(self) -> KernelStatus:
         """Get current kernel status."""
         uptime = 0.0
         if self._start_time and self.is_alive():
             uptime = time.time() - self._start_time
-        
+
         return KernelStatus(
-            state=self._state if self.is_alive() else 'dead',
+            state=self._state if self.is_alive() else "dead",
             pid=self._process.pid if self._process else None,
             uptime_seconds=uptime,
             executions_count=self._executions_count,
             last_execution_time=self._last_execution_time,
         )
-    
+
     def get_workspaces(self) -> list[WorkspaceInfo]:
         """Get list of workspaces in the kernel."""
         if not self.is_alive():
             return []
-        
-        result = self._send_command({'action': 'workspaces'})
+
+        result = self._send_command({"action": "workspaces"})
         if result is None:
             return []
-        
+
         workspaces = []
-        for ws_data in result.get('workspaces', []):
-            workspaces.append(WorkspaceInfo(
-                name=ws_data.get('name', ''),
-                ws_type=ws_data.get('type', 'Unknown'),
-                num_spectra=ws_data.get('num_spectra', 0),
-                num_bins=ws_data.get('num_bins', 0),
-                memory_mb=ws_data.get('memory_mb', 0.0),
-            ))
-        
+        for ws_data in result.get("workspaces", []):
+            workspaces.append(
+                WorkspaceInfo(
+                    name=ws_data.get("name", ""),
+                    ws_type=ws_data.get("type", "Unknown"),
+                    num_spectra=ws_data.get("num_spectra", 0),
+                    num_bins=ws_data.get("num_bins", 0),
+                    memory_mb=ws_data.get("memory_mb", 0.0),
+                )
+            )
+
         return workspaces
-    
+
     def get_variables(self) -> list[dict]:
         """Get list of user-defined variables in the kernel namespace."""
         if not self.is_alive():
             return []
-        
-        result = self._send_command({'action': 'variables'})
+
+        result = self._send_command({"action": "variables"})
         if result is None:
             return []
-        
-        return result.get('variables', [])
-    
+
+        return result.get("variables", [])
+
     def delete_workspace(self, name: str) -> tuple[bool, str]:
         """
         Delete a workspace from the kernel's ADS.
-        
+
         Returns:
             Tuple of (success: bool, message: str)
         """
         if not self.is_alive():
             return False, "Kernel is not running"
-        
+
         if not name:
             return False, "Workspace name is required"
-        
-        result = self._send_command({'action': 'delete_workspace', 'name': name})
+
+        result = self._send_command({"action": "delete_workspace", "name": name})
         if result is None:
             return False, "Failed to communicate with kernel"
-        
-        success = result.get('success', False)
+
+        success = result.get("success", False)
         if success:
             return True, f"Workspace '{name}' deleted"
         else:
-            error = result.get('error', 'Unknown error')
+            error = result.get("error", "Unknown error")
             return False, error
-    
+
     def get_memory_info(self) -> MemoryInfo:
         """Get memory usage information."""
         # System memory from psutil
@@ -505,17 +511,17 @@ while True:
         system_total_gb = mem.total / (1024**3)
         system_used_gb = mem.used / (1024**3)
         system_percent = mem.percent
-        
+
         # Mantid memory from kernel
         mantid_mb = 0.0
         if self.is_alive():
-            result = self._send_command({'action': 'memory'})
+            result = self._send_command({"action": "memory"})
             if result:
-                mantid_mb = result.get('mantid_mb', 0.0)
-        
+                mantid_mb = result.get("mantid_mb", 0.0)
+
         mantid_gb = mantid_mb / 1024
         mantid_percent = (mantid_gb / system_total_gb * 100) if system_total_gb > 0 else 0
-        
+
         return MemoryInfo(
             system_total_gb=system_total_gb,
             system_used_gb=system_used_gb,

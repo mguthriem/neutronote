@@ -8,6 +8,12 @@ import tempfile
 import pytest
 
 from neutronote.app import create_app
+from neutronote.instruments import (
+    InstrumentConfig,
+    available_instruments,
+    get_instrument,
+    register_instrument,
+)
 from neutronote.models import Entry, NotebookConfig, db
 
 
@@ -614,3 +620,188 @@ class TestPVLogPhase0:
             assert entry.title == "Test PV Plot"
             body = json.loads(entry.body)
             assert len(body["traces"]) == 1
+
+
+class TestInstrumentAbstraction:
+    """Tests for the instrument plugin system."""
+
+    def test_snap_is_registered(self):
+        """SNAP should be auto-registered on import."""
+        assert "SNAP" in available_instruments()
+
+    def test_get_instrument_snap(self):
+        """get_instrument('SNAP') returns a valid config."""
+        snap = get_instrument("SNAP")
+        assert snap.name == "SNAP"
+        assert snap.beamline == "BL3"
+        assert snap.facility == "SNS"
+
+    def test_get_instrument_case_insensitive(self):
+        """Instrument names should be case-insensitive."""
+        snap = get_instrument("snap")
+        assert snap.name == "SNAP"
+
+    def test_unknown_instrument_raises(self):
+        """Requesting an unknown instrument should raise ValueError."""
+        with pytest.raises(ValueError, match="Unknown instrument"):
+            get_instrument("NONEXISTENT")
+
+    def test_snap_data_root(self):
+        """SNAP data root should be /SNS/SNAP."""
+        from pathlib import Path
+
+        snap = get_instrument("SNAP")
+        assert snap.data_root == Path("/SNS/SNAP")
+
+    def test_snap_nexus_filenames(self):
+        """SNAP should produce correct NeXus filenames."""
+        snap = get_instrument("SNAP")
+        assert snap.nexus_filename(65432) == "SNAP_65432.nxs.h5"
+        assert snap.lite_nexus_filename(65432) == "SNAP_65432.lite.nxs.h5"
+
+    def test_snap_nexus_paths(self):
+        """SNAP should produce correct NeXus file paths."""
+        from pathlib import Path
+
+        snap = get_instrument("SNAP")
+        native = snap.nexus_path("IPTS-33219", 65432, lite=False)
+        lite = snap.nexus_path("IPTS-33219", 65432, lite=True)
+        assert native == Path("/SNS/SNAP/IPTS-33219/nexus/SNAP_65432.nxs.h5")
+        assert lite == Path("/SNS/SNAP/IPTS-33219/shared/lite/SNAP_65432.lite.nxs.h5")
+
+    def test_snap_reduced_data_root(self):
+        """SNAP reduced data root should point to SNAPRed folder."""
+        from pathlib import Path
+
+        snap = get_instrument("SNAP")
+        root = snap.reduced_data_root("IPTS-33219")
+        assert root == Path("/SNS/SNAP/IPTS-33219/shared/SNAPRed")
+
+    def test_snap_pv_aliases(self):
+        """SNAP PV aliases should include expected keys."""
+        snap = get_instrument("SNAP")
+        aliases = snap.pv_aliases()
+        assert "pressure" in aliases
+        assert "temperature" in aliases
+        assert "run_number" in aliases
+        assert "pvs" in aliases["pressure"]
+        assert any("BL3" in pv for pv in aliases["pressure"]["pvs"])
+
+    def test_snap_run_pvs(self):
+        """SNAP run control PVs should use BL3 prefix."""
+        snap = get_instrument("SNAP")
+        assert snap.run_number_pv() == "BL3:CS:RunControl:LastRunNumber"
+        assert snap.run_state_pv() == "BL3:CS:RunControl:StateEnum"
+
+    def test_snap_default_x_label(self):
+        """SNAP default x-axis label should be d-spacing."""
+        snap = get_instrument("SNAP")
+        assert "d-spacing" in snap.default_x_label()
+
+    def test_snap_run_number_from_filename(self):
+        """SNAP should parse run numbers from filenames."""
+        snap = get_instrument("SNAP")
+        assert snap.run_number_from_filename("SNAP_65432.nxs.h5") == 65432
+        assert snap.run_number_from_filename("SNAP_65432.lite.nxs.h5") == 65432
+        assert snap.run_number_from_filename("OTHER_65432.nxs.h5") is None
+
+    def test_snap_notebook_path(self):
+        """SNAP notebook path should follow convention."""
+        snap = get_instrument("SNAP")
+        path = snap.notebook_path("IPTS-33219")
+        assert path.endswith("IPTS-33219/shared/neutronote")
+        assert "/SNS/SNAP/" in path
+
+    def test_app_has_instrument_config(self, app):
+        """App config should contain an InstrumentConfig instance."""
+        assert "INSTRUMENT" in app.config
+        assert isinstance(app.config["INSTRUMENT"], InstrumentConfig)
+        assert app.config["INSTRUMENT"].name == "SNAP"
+
+    def test_app_context_processor_instrument(self, client):
+        """Templates should have access to instrument_name."""
+        response = client.get("/entries/")
+        assert response.status_code == 200
+
+    # --- REF_L tests --------------------------------------------------------
+
+    def test_ref_l_is_registered(self):
+        """REF_L should be auto-registered on import."""
+        assert "REF_L" in available_instruments()
+
+    def test_get_instrument_ref_l(self):
+        """get_instrument('REF_L') returns a valid config."""
+        ref_l = get_instrument("REF_L")
+        assert ref_l.name == "REF_L"
+        assert ref_l.beamline == "BL4B"
+        assert ref_l.facility == "SNS"
+
+    def test_ref_l_case_insensitive(self):
+        """REF_L lookup should be case-insensitive."""
+        ref_l = get_instrument("ref_l")
+        assert ref_l.name == "REF_L"
+
+    def test_ref_l_data_root(self):
+        """REF_L data root should be /SNS/REF_L."""
+        from pathlib import Path
+
+        ref_l = get_instrument("REF_L")
+        assert ref_l.data_root == Path("/SNS/REF_L")
+
+    def test_ref_l_nexus_filenames(self):
+        """REF_L should produce correct NeXus filenames."""
+        ref_l = get_instrument("REF_L")
+        assert ref_l.nexus_filename(12345) == "REF_L_12345.nxs.h5"
+        assert ref_l.lite_nexus_filename(12345) == "REF_L_12345.lite.nxs.h5"
+
+    def test_ref_l_nexus_paths(self):
+        """REF_L should produce correct NeXus file paths."""
+        from pathlib import Path
+
+        ref_l = get_instrument("REF_L")
+        native = ref_l.nexus_path("IPTS-28400", 12345, lite=False)
+        lite = ref_l.nexus_path("IPTS-28400", 12345, lite=True)
+        assert native == Path("/SNS/REF_L/IPTS-28400/nexus/REF_L_12345.nxs.h5")
+        assert lite == Path("/SNS/REF_L/IPTS-28400/shared/lite/REF_L_12345.lite.nxs.h5")
+
+    def test_ref_l_reduced_data_root(self):
+        """REF_L reduced data root should point to autoreduce folder."""
+        from pathlib import Path
+
+        ref_l = get_instrument("REF_L")
+        root = ref_l.reduced_data_root("IPTS-28400")
+        assert root == Path("/SNS/REF_L/IPTS-28400/shared/autoreduce")
+
+    def test_ref_l_pv_aliases(self):
+        """REF_L PV aliases should include expected keys."""
+        ref_l = get_instrument("REF_L")
+        aliases = ref_l.pv_aliases()
+        assert "temperature" in aliases
+        assert "run_number" in aliases
+        assert "pvs" in aliases["temperature"]
+        assert any("BL4B" in pv for pv in aliases["temperature"]["pvs"])
+
+    def test_ref_l_run_pvs(self):
+        """REF_L run control PVs should use BL4B prefix."""
+        ref_l = get_instrument("REF_L")
+        assert ref_l.run_number_pv() == "BL4B:CS:RunControl:LastRunNumber"
+        assert ref_l.run_state_pv() == "BL4B:CS:RunControl:StateEnum"
+
+    def test_ref_l_default_x_label(self):
+        """REF_L default x-axis label should be Q."""
+        ref_l = get_instrument("REF_L")
+        assert "Q" in ref_l.default_x_label()
+
+    def test_ref_l_run_number_from_filename(self):
+        """REF_L should parse run numbers from filenames."""
+        ref_l = get_instrument("REF_L")
+        assert ref_l.run_number_from_filename("REF_L_12345.nxs.h5") == 12345
+        assert ref_l.run_number_from_filename("REF_L_12345.lite.nxs.h5") == 12345
+        assert ref_l.run_number_from_filename("SNAP_12345.nxs.h5") is None
+
+    def test_ref_l_notebook_path(self):
+        """REF_L notebook path should follow convention."""
+        ref_l = get_instrument("REF_L")
+        path = ref_l.notebook_path("IPTS-28400")
+        assert path.endswith("IPTS-28400/shared/neutronote")
+        assert "/SNS/REF_L/" in path

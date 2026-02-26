@@ -105,11 +105,13 @@ pixi run test  # 25 tests pass
 
 ---
 
-## Phase 3 – Neutron data entry (interactive plots via snapwrap/mantid) 🔄
+## Phase 3 – Neutron data entry (interactive plots via mantid) 🔄
 | Deliverable | Notes |
 |-------------|-------|
 | `neutronote/services/data.py` | ✅ Discover reduced data by state/run |
-| Reduced data discovery | ✅ Find files in `/SNS/SNAP/<IPTS>/shared/SNAPRed/` |
+| **Instrument abstraction** | ✅ `InstrumentConfig` ABC + plugin registry |
+| **SNAP plugin** | ✅ `instruments/snap/` with SNAPConfig, PV aliases |
+| Reduced data discovery | ✅ Find files via instrument's `reduced_data_root()` |
 | Metadata extraction | ✅ Title, duration, start_time from reduced NeXus |
 | Run browser modal | ✅ Sortable/filterable table with title, duration, start |
 | `/entries/api/states` | ✅ List available instrument states |

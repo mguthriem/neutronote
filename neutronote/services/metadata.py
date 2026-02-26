@@ -1,13 +1,12 @@
 """
 Metadata retrieval service.
 
-Wraps snapwrap / mantid calls to fetch experiment info (IPTS, run number, sample, etc.).
+Wraps h5py / mantid calls to fetch experiment info (IPTS, run number, sample, etc.).
 Keep all mantid imports inside this module to avoid import errors in environments
 without mantid installed.
 
-Import style for snapwrap sub-modules:
-    from snapwrap.spectralTools import ...
-    from snapwrap.SEEMeta import ...
+All instrument-specific path logic is delegated to the active
+``InstrumentConfig`` obtained from ``flask.current_app``.
 """
 
 from __future__ import annotations
@@ -120,6 +119,24 @@ class RunMetadata:
         }
 
 
+def _get_instrument():
+    """Return the active InstrumentConfig.
+
+    Tries Flask's current_app first; falls back to the default instrument
+    so the function can be used outside of a request context (e.g. in CLI
+    scripts or tests).
+    """
+    try:
+        from flask import current_app
+
+        return current_app.config["INSTRUMENT"]
+    except (RuntimeError, KeyError):
+        from ..instruments import get_instrument
+        import os
+
+        return get_instrument(os.environ.get("NEUTRONOTE_INSTRUMENT", "SNAP"))
+
+
 def find_nexus_file(run_number: int, ipts: str | None = None) -> Path | None:
     """
     Locate the NeXus file for a given run number.
@@ -127,14 +144,14 @@ def find_nexus_file(run_number: int, ipts: str | None = None) -> Path | None:
     Parameters
     ----------
     run_number : int
-        The SNAP run number.
+        The run number.
     ipts : str, optional
         The IPTS folder name (e.g., "IPTS-12345"). If provided, searches
         only that IPTS folder first for faster lookup.
 
     Search order (prefers native files for complete metadata):
-    1. Full NeXus: /SNS/SNAP/<IPTS>/nexus/SNAP_<run>.nxs.h5
-    2. Lite NeXus: /SNS/SNAP/<IPTS>/shared/lite/SNAP_<run>.lite.nxs.h5 (fallback)
+    1. Full NeXus: ``<data_root>/<IPTS>/nexus/<INSTR>_<run>.nxs.h5``
+    2. Lite NeXus: ``<data_root>/<IPTS>/shared/lite/<INSTR>_<run>.lite.nxs.h5``
 
     Uses finddata CLI if available, otherwise scans known IPTS folders.
     """
@@ -147,26 +164,28 @@ def find_nexus_file(run_number: int, ipts: str | None = None) -> Path | None:
             # PermissionError, etc. – treat as "not accessible"
             return False
 
-    base = Path("/SNS/SNAP")
+    instrument = _get_instrument()
+    base = instrument.data_root
 
     # If IPTS is specified, check that folder first
     if ipts:
         ipts_dir = base / ipts
         if _path_exists_safe(ipts_dir):
             # Try native first (has complete metadata)
-            native_path = ipts_dir / "nexus" / f"SNAP_{run_number}.nxs.h5"
+            native_path = instrument.nexus_path(ipts, run_number, lite=False)
             if _path_exists_safe(native_path):
                 return native_path
             # Then lite as fallback
-            lite_path = ipts_dir / "shared" / "lite" / f"SNAP_{run_number}.lite.nxs.h5"
+            lite_path = instrument.nexus_path(ipts, run_number, lite=True)
             if _path_exists_safe(lite_path):
                 return lite_path
 
-    # Try using finddata CLI (same approach as stateFromRun.py)
+    # Try using finddata CLI
     try:
         from finddata import cli
 
-        record = cli.getFileLoc("SNS", "SNAP", [run_number])
+        facility, instr_name = instrument.finddata_args()
+        record = cli.getFileLoc(facility, instr_name, [run_number])
         native_path = Path(record["location"])
         if _path_exists_safe(native_path):
             return native_path
@@ -180,11 +199,11 @@ def find_nexus_file(run_number: int, ipts: str | None = None) -> Path | None:
     # Look through IPTS folders
     for ipts_dir in sorted(base.glob("IPTS-*"), reverse=True):
         # Try native first (has complete metadata)
-        native_path = ipts_dir / "nexus" / f"SNAP_{run_number}.nxs.h5"
+        native_path = ipts_dir / "nexus" / instrument.nexus_filename(run_number)
         if _path_exists_safe(native_path):
             return native_path
         # Then lite as fallback
-        lite_path = ipts_dir / "shared" / "lite" / f"SNAP_{run_number}.lite.nxs.h5"
+        lite_path = ipts_dir / "shared" / "lite" / instrument.lite_nexus_filename(run_number)
         if _path_exists_safe(lite_path):
             return lite_path
 
@@ -213,14 +232,13 @@ def get_run_metadata_from_file(file_path: str | Path) -> RunMetadata:
     if not HAS_H5PY:
         return RunMetadata(run_number=0, error="h5py not installed")
 
-    # Extract run number from filename (SNAP_12345.nxs.h5 or SNAP_12345.lite.nxs.h5)
+    # Extract run number from filename using instrument config
     name = path.name
     run_number = 0
-    if name.startswith("SNAP_"):
-        try:
-            run_number = int(name.split("_")[1].split(".")[0])
-        except (IndexError, ValueError):
-            pass
+    instrument = _get_instrument()
+    parsed = instrument.run_number_from_filename(name)
+    if parsed is not None:
+        run_number = parsed
 
     try:
         with h5py.File(path, "r") as f:
@@ -281,7 +299,7 @@ def get_run_metadata(run_number: int, ipts: str | None = None) -> RunMetadata:
     Parameters
     ----------
     run_number : int
-        The SNAP run number.
+        The run number.
     ipts : str, optional
         The IPTS folder name (e.g., "IPTS-12345"). If provided, searches
         that IPTS folder first for faster lookup.

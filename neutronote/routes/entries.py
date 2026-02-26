@@ -22,7 +22,7 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 
-from ..app import allowed_file, IPTS_BASE_PATH, ALLOWED_EXTENSIONS
+from ..app import allowed_file, ALLOWED_EXTENSIONS
 from ..models import Entry, NotebookConfig, db
 from ..services.metadata import get_run_metadata
 from ..services.data import discover_state_ids, discover_reduced_runs, get_run_metadata_lazy, get_run_metadata_quick
@@ -36,7 +36,8 @@ bp = Blueprint("entries", __name__, url_prefix="/entries")
 @bp.route("/")
 def index():
     """Main split-view: entry creation on left, timeline on right."""
-    from neutronote.services.pvlog import SNAP_PV_ALIASES
+    instrument = current_app.config["INSTRUMENT"]
+    pv_aliases = instrument.pv_aliases()
 
     config = NotebookConfig.get_config()
     entries = Entry.query.order_by(Entry.created_at.asc()).all()
@@ -44,7 +45,7 @@ def index():
         "entries/index.html",
         entries=entries,
         config=config,
-        aliases=SNAP_PV_ALIASES,
+        aliases=pv_aliases,
     )
 
 
@@ -84,7 +85,8 @@ def setup_notebook():
 
     # Verify the IPTS folder exists
     from pathlib import Path
-    ipts_path = Path("/SNS/SNAP") / ipts
+    instrument = current_app.config["INSTRUMENT"]
+    ipts_path = instrument.ipts_path(ipts)
     if not ipts_path.exists():
         flash(f"IPTS folder not found: {ipts_path}", "error")
         return redirect(url_for("entries.index"))
@@ -225,7 +227,8 @@ def _get_ipts_shared_root():
     ipts = current_app.config.get("IPTS")
     if not ipts:
         return None
-    return os.path.join(IPTS_BASE_PATH, f"IPTS-{ipts}", "shared")
+    instrument = current_app.config["INSTRUMENT"]
+    return str(instrument.data_root / f"IPTS-{ipts}" / "shared")
 
 
 IMAGE_EXTENSIONS = {f".{ext}" for ext in ALLOWED_EXTENSIONS}
@@ -1119,7 +1122,7 @@ def pvlog_resolve():
         else:
             return jsonify({"error": "No time range and no experiment dates configured"})
 
-    from neutronote.services.pvlog import PVLogService, SNAP_PV_ALIASES
+    from neutronote.services.pvlog import PVLogService
 
     try:
         svc = PVLogService()

@@ -1,6 +1,7 @@
 # Copilot instructions – neutroNote
 
-> E-lab notebook web app for time-sequenced experiment entries (Flask + SQLite + mantid/snapwrap).
+> E-lab notebook web app for time-sequenced experiment entries (Flask + SQLite + mantid).
+> Multi-instrument support via pluggable instrument configs.
 
 ## Quick reference
 
@@ -18,8 +19,11 @@
 neutronote/
   app.py            # create_app() factory, blueprints registered here
   models.py         # SQLAlchemy models: Entry, Tag (User added later)
+  instruments/      # Pluggable instrument configs (ABC + registry)
+    __init__.py     # InstrumentConfig ABC, register_instrument, get_instrument
+    snap/           # SNAP plugin: SNAPConfig, pv_aliases
   routes/           # Blueprints (entries, auth, api…)
-  services/         # metadata.py, data.py – wrappers around snapwrap/mantid
+  services/         # metadata.py, data.py – wrappers around mantid
   templates/        # Jinja2 HTML (base.html, entries/, auth/)
   static/           # CSS, JS, images
 tests/              # pytest suite (mirrors neutronote/ structure)
@@ -32,10 +36,15 @@ pyproject.toml      # Pixi + pip config, tasks, tool settings
 - **Flask app factory** in `neutronote/app.py` – loads config, registers
   extensions (Flask-SQLAlchemy) and blueprints.
 - **SQLite** database at `instance/neutronote.db`; models in `models.py`.
+- **Instrument abstraction**: pluggable `InstrumentConfig` subclasses in
+  `neutronote/instruments/`. Each instrument defines file paths, PV aliases,
+  reduced-data layout, and instrument-specific logic. Selected via
+  `--instrument` CLI arg or `NEUTRONOTE_INSTRUMENT` env var (default: SNAP).
 - **Entry types** (text, header, neutron-data, code) share a single `Entry`
   model with a `type` discriminator; rendering handled in Jinja partials.
-- **Data backend**: `snapwrap` + `mantid` (server-side) for loading/reducing
-  neutron data; results sent as JSON to browser.
+- **Data backend**: mantid (server-side) for loading/reducing neutron data;
+  instrument-specific wrappers (e.g. snapwrap for SNAP) imported inside plugins.
+  Results sent as JSON to browser.
 - **Interactive plots**: Plotly (server builds JSON config, Plotly.js renders).
 - **Code cells**: Pyodide (browser-side Python/WebAssembly) for lightweight
   scripting; heavy computation stays on server via API.
@@ -50,10 +59,15 @@ The main interface uses a **split-view design**:
 
 ### Data file paths
 
+Data file paths are defined by each instrument plugin. For SNAP:
+
 | Type | Path template |
 |------|---------------|
 | Full NeXus | `/SNS/SNAP/<IPTS>/nexus/SNAP_<run>.nxs.h5` |
 | Lite NeXus | `/SNS/SNAP/<IPTS>/shared/lite/SNAP_<run>.lite.nxs.h5` *(preferred)* |
+
+Other instruments override `nexus_path()`, `nexus_filename()`, etc. in their
+`InstrumentConfig` subclass.
 
 ## Conventions
 
@@ -61,8 +75,9 @@ The main interface uses a **split-view design**:
   `app.py`.
 - **Templates**: extend `templates/base.html`; entry-type partials live in
   `templates/entries/_<type>.html`.
-- **Services**: `services/metadata.py` and `services/data.py` wrap snapwrap
-  calls; keep mantid imports isolated here.
+- **Services**: `services/metadata.py` and `services/data.py` wrap mantid
+  calls; keep mantid imports isolated here. Instrument-specific wrappers
+  (e.g. snapwrap) are imported inside instrument plugins only.
 - **Tests**: mirror source tree; use the `client` fixture from `conftest.py`.
 - **Config**: Flask config via `app.config`; secrets in env vars or `.env`
   (loaded by `python-dotenv`). Never commit secrets.
@@ -75,6 +90,20 @@ The main interface uses a **split-view design**:
 4. Update `templates/entries/_entry_card.html` to render the new type.
 5. Update `templates/entries/index.html` to enable the tab and add the form.
 6. Write tests in `tests/test_app.py`.
+
+## Adding a new instrument
+
+1. Create a subpackage `neutronote/instruments/<name>/`.
+2. In its `__init__.py`, subclass `InstrumentConfig` and decorate with
+   `@register_instrument`.
+3. Implement all abstract properties/methods: `name`, `beamline`, `facility`,
+   `data_root`, `nexus_path()`, `nexus_filename()`, `lite_nexus_filename()`,
+   `notebook_path()`, `reduced_data_root()`, `pv_aliases()`,
+   `run_number_pv()`, `run_state_pv()`, `default_x_label()`, etc.
+4. Add the subpackage to `_BUILTINS` in `neutronote/instruments/__init__.py`
+   so it is auto-discovered on import.
+5. Write tests in `tests/test_app.py` (see `TestInstrumentAbstraction` for
+   reference).
 
 ### Header entries (Run Headers)
 
@@ -90,7 +119,7 @@ Header entries fetch metadata from NeXus files and display run information.
 
 | Integration | Location | Notes |
 |-------------|----------|-------|
-| **snapwrap** | `services/metadata.py`, `services/data.py` | SNAP-specific mantid algorithms; see [neutrons/SNAPWrap](https://github.com/neutrons/SNAPWrap) |
+| **snapwrap** | `instruments/snap/` | SNAP-specific mantid algorithms; see [neutrons/SNAPWrap](https://github.com/neutrons/SNAPWrap) |
 | **mantid** | imported inside services | Load workspaces, reduce data, extract arrays |
 | **Pyodide** | `static/js/pyodide-loader.js` | Browser Python for code cells |
 
@@ -101,13 +130,14 @@ from snapwrap.spectralTools import some_function
 from snapwrap.SEEMeta import SomeClass
 ```
 
-Keep all mantid/snapwrap imports isolated inside `neutronote/services/` so the
-app can run (with stubs) in environments without mantid installed.
+Keep all mantid/snapwrap imports isolated inside `neutronote/services/` and
+`neutronote/instruments/` so the app can run (with stubs) in environments
+without mantid installed.
 
 ## Tips for AI agents
 
 - Run `pixi run test` after changes; check for regressions.
 - Use `ruff` and `black` before committing (`pixi run lint && pixi run fmt`).
 - Consult `docs/PLAN.md` to see what phase the project is in and what's next.
-- Keep mantid/snapwrap imports inside `services/` to avoid import errors in
-  environments without mantid installed.
+- Keep mantid/snapwrap imports inside `services/` and `instruments/` to avoid
+  import errors in environments without mantid installed.
