@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -18,10 +19,12 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Oracle connection details (read-only reporting account)
+# Loaded from environment variables; falls back to empty strings.
+# Set ORACLE_DSN, ORACLE_USER, ORACLE_PASS in your .env or environment.
 # ---------------------------------------------------------------------------
-ORACLE_DSN = "REDACTED_DSN"
-ORACLE_USER = "REDACTED_USER"
-ORACLE_PASS = "REDACTED"
+ORACLE_DSN = os.environ.get("ORACLE_DSN", "")
+ORACLE_USER = os.environ.get("ORACLE_USER", "")
+ORACLE_PASS = os.environ.get("ORACLE_PASS", "")
 
 # ---------------------------------------------------------------------------
 # PV alias registry – friendly names → candidate PVs

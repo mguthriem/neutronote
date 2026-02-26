@@ -17,6 +17,7 @@
     </div>
 
     <form action="{{ url_for('entries.edit', entry_id=entry.id) }}" method="post" class="edit-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-group">
             <label for="title">Title (optional)</label>
             <input type="text" id="title" name="title" value="{{ entry.title or '' }}" placeholder="Entry title...">

@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}neutroNote{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <!-- KaTeX for LaTeX math rendering -->
@@ -40,6 +41,32 @@
         });"></script>
     {% block scripts %}{% endblock %}
     <script>
+    // CSRF: auto-include token in all fetch() POST/PUT/PATCH/DELETE requests
+    (function() {
+        const _origFetch = window.fetch;
+        window.fetch = function(url, opts) {
+            opts = opts || {};
+            const method = (opts.method || 'GET').toUpperCase();
+            if (method !== 'GET' && method !== 'HEAD') {
+                const token = document.querySelector('meta[name="csrf-token"]');
+                if (token) {
+                    opts.headers = opts.headers || {};
+                    // Support both Headers object and plain object
+                    if (opts.headers instanceof Headers) {
+                        if (!opts.headers.has('X-CSRFToken')) {
+                            opts.headers.set('X-CSRFToken', token.content);
+                        }
+                    } else {
+                        if (!opts.headers['X-CSRFToken']) {
+                            opts.headers['X-CSRFToken'] = token.content;
+                        }
+                    }
+                }
+            }
+            return _origFetch.call(this, url, opts);
+        };
+    })();
+
     // Show loading overlay during page navigations (hides Plotly re-render delay)
     document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('page-loading-overlay').style.display = 'none';

@@ -10,6 +10,7 @@ import uuid
 
 from flask import (
     Blueprint,
+    abort,
     current_app,
     flash,
     jsonify,
@@ -209,6 +210,9 @@ def create_image():
 @bp.route("/uploads/<filename>")
 def uploaded_file(filename):
     """Serve uploaded images."""
+    filename = secure_filename(filename)
+    if not filename:
+        abort(400)
     return send_from_directory(current_app.config["UPLOAD_FOLDER"], filename)
 
 
@@ -343,7 +347,10 @@ def api_reset_timeline():
     DEV ONLY: Delete all entries from the timeline.
     
     This is a destructive operation for development/testing purposes.
+    Only available when the app is running in debug mode.
     """
+    if not current_app.debug:
+        abort(404)
     try:
         # Delete all entries
         num_deleted = Entry.query.delete()
@@ -413,7 +420,14 @@ def execute_code():
         - output: stdout from execution
         - error: error message if failed
         - execution_time: seconds taken
+    
+    Security: only accepts requests from localhost.
     """
+    # Reject requests that don't originate from localhost
+    remote = request.remote_addr
+    if remote not in ("127.0.0.1", "::1", None):
+        abort(403)
+    
     data = request.get_json()
     if not data or "code" not in data:
         return jsonify({"error": "code required"}), 400

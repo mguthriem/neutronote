@@ -4,7 +4,12 @@ neutroNote – Flask application factory.
 
 import os
 
+from dotenv import load_dotenv
 from flask import Flask
+
+# Load .env file (if present) so os.environ.get() picks up secrets.
+# In production, set real environment variables instead.
+load_dotenv()
 
 # Allowed image extensions
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp", "svg"}
@@ -101,7 +106,7 @@ def create_app(test_config=None, ipts=None):
 
     # Default configuration
     app.config.from_mapping(
-        SECRET_KEY="dev-secret-change-in-production",
+        SECRET_KEY=os.environ.get("SECRET_KEY", "dev-secret-change-in-production"),
         SQLALCHEMY_DATABASE_URI=f"sqlite:///{db_path}",
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         # SQLite settings for shared filesystem (GPFS) with multiple users
@@ -120,9 +125,11 @@ def create_app(test_config=None, ipts=None):
         app.config.update(test_config)
 
     # ---- Extensions ----
+    from flask_wtf.csrf import CSRFProtect
     from .models import db
     from sqlalchemy import event
 
+    csrf = CSRFProtect(app)
     db.init_app(app)
     
     # Set SQLite pragmas for better multi-user support on shared filesystem

@@ -17,6 +17,9 @@ dependencies = [
     "pandas>=2.1",
     "markdown>=3.5",
     "h5py>=3.10",
+    "psutil>=5.9",
+    "numpy>=1.24",
+    "oracledb>=2.0",
 ]
 
 [project.optional-dependencies]
