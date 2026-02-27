@@ -30,6 +30,10 @@ Heavy computation runs server-side; code cells in the browser (Pyodide) operate 
 ```bash
 # Install Pixi if needed: https://prefix.dev/docs/pixi/overview
 pixi install            # create env & install deps
+
+# Optional: Configure environment (copy .env.example to .env and customize)
+cp .env.example .env    # set ORACLE_DSN, NEUTRONOTE_REDUCED_DATA_PATH, etc.
+
 pixi run dev            # start Flask dev server at http://127.0.0.1:5000
 ```
 
@@ -38,8 +42,23 @@ pixi run dev            # start Flask dev server at http://127.0.0.1:5000
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
+
+# Optional: Configure environment
+cp .env.example .env    # customize as needed
+
 flask --app neutronote.app run --debug
 ```
+
+## Configuration
+
+Copy `.env.example` to `.env` and customize:
+
+- `NEUTRONOTE_INSTRUMENT` - Default instrument (SNAP, REF_L, etc.)
+- `NEUTRONOTE_REDUCED_DATA_PATH` - Default reduced data location (supports `{ipts}` placeholder)
+- `ORACLE_DSN`, `ORACLE_USER`, `ORACLE_PASS` - PV Log database credentials
+- `SECRET_KEY` - Flask secret (change in production!)
+
+See `.env.example` for full list and documentation.
 
 ## Running tests
 

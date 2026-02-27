@@ -12,7 +12,7 @@ db = SQLAlchemy()
 
 def get_current_user() -> str:
     """Get the current Linux username.
-    
+
     Returns the USER environment variable, which is set when
     a user logs into the system. Falls back to 'unknown' if not set.
     """
@@ -107,6 +107,8 @@ class NotebookConfig(db.Model):
     title = db.Column(db.String(200), nullable=True)  # Optional notebook title
     experiment_start = db.Column(db.DateTime, nullable=True)  # Experiment start date
     experiment_end = db.Column(db.DateTime, nullable=True)  # Experiment end date
+    # Override for reduced data location (e.g., /SNS/REF_L/IPTS-12345/shared/autoreduce)
+    reduced_data_path = db.Column(db.String(500), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = db.Column(db.DateTime, nullable=True)
 
@@ -146,3 +148,8 @@ class NotebookConfig(db.Model):
         if self.experiment_end:
             return self.experiment_end.strftime("%Y-%m-%d")
         return ""
+
+    @property
+    def has_reduced_data_path(self):
+        """Return True if a custom reduced data path has been set."""
+        return self.reduced_data_path is not None and self.reduced_data_path.strip() != ""

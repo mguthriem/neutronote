@@ -86,6 +86,14 @@ class InstrumentConfig(ABC):
         """Root directory for reduced data, or ``None`` if not applicable."""
         return None
 
+    def reduced_file_extensions(self) -> list[str]:
+        """File extensions for reduced data files (e.g., [".nxs", ".txt"]).
+
+        Used to discover reduced data files in flat directory structures.
+        Default is [".nxs"] for NeXus files.
+        """
+        return [".nxs"]
+
     # --- PV aliases ---------------------------------------------------------
 
     @abstractmethod
@@ -110,7 +118,13 @@ class InstrumentConfig(ABC):
     # --- Optional hooks (override in subclass) ------------------------------
 
     def get_state_id_for_run(self, run_number: int) -> str | None:
-        """Return an instrument-state hash for *run_number*, or ``None``."""
+        """Return an instrument-state hash for *run_number*, or ``None``.
+
+        SNAP uses this to map runs to 16-character state IDs via snapwrap.
+        Other instruments may not have a state concept and should return None.
+        If None, reduced data discovery will look for flat file structures or
+        use user-configured paths.
+        """
         return None
 
     def default_x_label(self) -> str:
@@ -152,8 +166,7 @@ def get_instrument(name: str) -> InstrumentConfig:
     cls = _REGISTRY.get(name.upper())
     if cls is None:
         raise ValueError(
-            f"Unknown instrument: {name!r}. "
-            f"Available: {', '.join(sorted(_REGISTRY))}"
+            f"Unknown instrument: {name!r}. " f"Available: {', '.join(sorted(_REGISTRY))}"
         )
     return cls()
 

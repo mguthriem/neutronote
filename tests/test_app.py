@@ -26,7 +26,8 @@ def app():
             "TESTING": True,
             "SQLALCHEMY_DATABASE_URI": f"sqlite:///{db_path}",
             "WTF_CSRF_ENABLED": False,
-        }
+        },
+        instrument_name="SNAP",  # Explicitly use SNAP for tests
     )
 
     yield app
@@ -262,7 +263,7 @@ class TestHeaderEntries:
         html = response.data.decode()
         # Header button should exist but be disabled
         assert 'data-type="header"' in html
-        assert 'Configure IPTS first' in html
+        assert "Configure IPTS first" in html
 
     def test_header_tab_enabled_with_ipts(self, configured_client):
         """Header tab should be enabled when IPTS is configured."""
@@ -273,7 +274,7 @@ class TestHeaderEntries:
         # The header form should have a run_number input
         assert 'name="run_number"' in html
         # Should show the configured IPTS
-        assert 'IPTS-12345' in html
+        assert "IPTS-12345" in html
 
     def test_create_header_requires_ipts_config(self, client, app):
         """Creating header without IPTS configured should show error."""
@@ -543,7 +544,7 @@ class TestPVLogPhase0:
         response = client.get("/entries/", follow_redirects=True)
         html = response.data.decode()
         assert 'data-type="pvlog"' in html
-        assert 'disabled' in html.split('data-type="pvlog"')[1].split('>')[0]
+        assert "disabled" in html.split('data-type="pvlog"')[1].split(">")[0]
 
     def test_pvlog_tab_enabled_with_dates(self, app):
         """PV Log tab should be enabled when dates are configured."""
@@ -560,8 +561,8 @@ class TestPVLogPhase0:
         response = client.get("/entries/", follow_redirects=True)
         html = response.data.decode()
         # The PV Log tab should NOT have disabled attribute
-        pvlog_section = html.split('data-type="pvlog"')[1].split('>')[0]
-        assert 'disabled' not in pvlog_section
+        pvlog_section = html.split('data-type="pvlog"')[1].split(">")[0]
+        assert "disabled" not in pvlog_section
 
     def test_pvlog_aliases_endpoint(self, client):
         """GET /api/pvlog/aliases should return alias registry."""

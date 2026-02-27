@@ -26,10 +26,12 @@ def _get_instrument():
     """
     try:
         from flask import current_app
+
         return current_app.config["INSTRUMENT"]
     except (RuntimeError, KeyError):
         from ..instruments import get_instrument
         import os
+
         return get_instrument(os.environ.get("NEUTRONOTE_INSTRUMENT", "SNAP"))
 
 
@@ -48,7 +50,7 @@ class ReducedRun:
     reduced_file: Path
     record_file: Path | None = None
     pixelmask_file: Path | None = None
-    
+
     # Run metadata (from native NeXus file)
     title: str = ""
     duration: float = 0.0  # seconds
@@ -149,6 +151,7 @@ class StateInfo:
 # Optional h5py import – gracefully degrade if not available
 try:
     import h5py
+
     HAS_H5PY = True
 except ImportError:
     HAS_H5PY = False
@@ -157,14 +160,14 @@ except ImportError:
 def get_metadata_from_reduced_file(reduced_file: Path) -> dict[str, Any]:
     """
     Extract run metadata (title, duration, start_time) from a reduced NeXus file.
-    
+
     The reduced file stores metadata in mantid_workspace_1/logs/.
-    
+
     Parameters
     ----------
     reduced_file : Path
         Path to the reduced .nxs file.
-    
+
     Returns
     -------
     dict
@@ -172,9 +175,10 @@ def get_metadata_from_reduced_file(reduced_file: Path) -> dict[str, Any]:
     """
     if not HAS_H5PY or not reduced_file.exists():
         return {"title": "", "duration": 0.0, "start_time": ""}
-    
+
     try:
         with h5py.File(reduced_file, "r") as f:
+
             def read_log_value(log_name, default=None):
                 """Read a value from mantid_workspace_1/logs/<name>/value."""
                 try:
@@ -194,7 +198,7 @@ def get_metadata_from_reduced_file(reduced_file: Path) -> dict[str, Any]:
                     return v
                 except Exception:
                     return default
-            
+
             # Also check the title dataset directly
             def read_title():
                 try:
@@ -209,7 +213,7 @@ def get_metadata_from_reduced_file(reduced_file: Path) -> dict[str, Any]:
                 except Exception:
                     pass
                 return read_log_value("run_title", "")
-            
+
             return {
                 "title": read_title() or "",
                 "duration": float(read_log_value("duration", 0.0) or 0.0),
@@ -222,16 +226,16 @@ def get_metadata_from_reduced_file(reduced_file: Path) -> dict[str, Any]:
 def get_run_metadata_quick(ipts: str, run_number: int) -> dict[str, Any]:
     """
     Quickly fetch basic metadata (title, duration, start_time) for a run.
-    
+
     Reads from the native NeXus file which contains the full metadata.
-    
+
     Parameters
     ----------
     ipts : str
         The IPTS identifier.
     run_number : int
         The run number.
-    
+
     Returns
     -------
     dict
@@ -239,16 +243,17 @@ def get_run_metadata_quick(ipts: str, run_number: int) -> dict[str, Any]:
     """
     if not HAS_H5PY:
         return {"title": "", "duration": 0.0, "start_time": ""}
-    
+
     # Try native file first (has complete metadata)
     instrument = _get_instrument()
     native_path = instrument.data_root / ipts / "nexus" / instrument.nexus_filename(run_number)
-    
+
     if not native_path.exists():
         return {"title": "", "duration": 0.0, "start_time": ""}
-    
+
     try:
         with h5py.File(native_path, "r") as f:
+
             def read_value(key, default=None):
                 try:
                     ds = f.get(key)
@@ -266,7 +271,7 @@ def get_run_metadata_quick(ipts: str, run_number: int) -> dict[str, Any]:
                     return v
                 except Exception:
                     return default
-            
+
             return {
                 "title": read_value("entry/title", "") or "",
                 "duration": float(read_value("entry/duration", 0.0) or 0.0),
@@ -284,8 +289,43 @@ def get_run_metadata_quick(ipts: str, run_number: int) -> dict[str, Any]:
 def get_reduced_data_root(ipts: str) -> Path | None:
     """Get the reduced data output folder for an IPTS.
 
-    Delegates to the active instrument config.
+    Priority order:
+    1. User-configured path in NotebookConfig.reduced_data_path
+    2. Environment variable NEUTRONOTE_REDUCED_DATA_PATH (with {ipts} substitution)
+    3. Instrument default from InstrumentConfig.reduced_data_root(ipts)
+
+    Parameters
+    ----------
+    ipts : str
+        The IPTS identifier (e.g., "IPTS-12345").
+
+    Returns
+    -------
+    Path or None
+        The reduced data root directory, or None if not available.
     """
+    # 1. Try to get configured path from notebook config (highest priority)
+    try:
+        from flask import current_app
+        from ..models import NotebookConfig
+
+        with current_app.app_context():
+            config = NotebookConfig.get_config()
+            if config.has_reduced_data_path:
+                return Path(config.reduced_data_path)
+    except (RuntimeError, ImportError):
+        pass
+
+    # 2. Try environment variable with {ipts} substitution
+    import os
+
+    env_path = os.environ.get("NEUTRONOTE_REDUCED_DATA_PATH")
+    if env_path:
+        # Substitute {ipts} placeholder with actual IPTS value
+        resolved_path = env_path.replace("{ipts}", ipts)
+        return Path(resolved_path)
+
+    # 3. Fall back to instrument config default
     instrument = _get_instrument()
     return instrument.reduced_data_root(ipts)
 
@@ -294,7 +334,9 @@ def discover_state_ids(ipts: str) -> list[str]:
     """
     Discover all state IDs with reduced data in an IPTS.
 
-    State IDs are 16-character hash strings representing instrument configurations.
+    For SNAP-like instruments: State IDs are 16-character hash strings.
+    For other instruments: Returns subdirectories in the reduced data folder.
+    If no subdirectories exist, returns ["_flat"] to indicate flat structure.
 
     Parameters
     ----------
@@ -304,22 +346,115 @@ def discover_state_ids(ipts: str) -> list[str]:
     Returns
     -------
     list[str]
-        List of state ID strings found in the SNAPRed folder.
+        List of state ID strings or subdirectory names found.
+        Returns ["_flat"] if reduced data is stored flat (no subdirectories).
     """
-    snapred_root = get_reduced_data_root(ipts)
+    reduced_root = get_reduced_data_root(ipts)
 
-    if not snapred_root or not snapred_root.exists():
+    if not reduced_root or not reduced_root.exists():
         return []
 
-    state_ids = []
-    # State IDs are 16-character hex strings
+    # First, check if there are data files directly in the root
+    # This indicates a flat structure (e.g., REF_L stores REFL_*.txt in root)
+    instrument = _get_instrument()
+    extensions = instrument.reduced_file_extensions()
+    has_root_data_files = False
+
+    for ext in extensions:
+        pattern = f"*{ext}"
+        if any(reduced_root.glob(pattern)):
+            has_root_data_files = True
+            break
+
+    # If data files exist in root, it's a flat structure (even if subdirs exist)
+    if has_root_data_files:
+        return ["_flat"]
+
+    # State IDs are 16-character hex strings (SNAP convention)
     state_pattern = re.compile(r"^[a-f0-9]{16}$", re.IGNORECASE)
 
-    for item in snapred_root.iterdir():
-        if item.is_dir() and state_pattern.match(item.name):
-            state_ids.append(item.name)
+    state_ids = []
+    has_subdirs = False
+
+    for item in reduced_root.iterdir():
+        if item.is_dir():
+            has_subdirs = True
+            # Check if it's a SNAP-style state hash or just a regular subdirectory
+            if state_pattern.match(item.name):
+                state_ids.append(item.name)
+            else:
+                # For non-SNAP instruments, include any subdirectory
+                state_ids.append(item.name)
+
+    # If no subdirectories found, indicate flat structure with "_flat"
+    # This allows instruments that store reduced data directly in the root
+    if not has_subdirs:
+        return ["_flat"]
 
     return sorted(state_ids)
+
+
+def _discover_reduced_runs_flat(
+    reduced_root: Path,
+    ipts: str,
+    lite: bool = True,
+    latest_only: bool = True,
+) -> list[ReducedRun]:
+    """
+    Discover reduced runs in a flat structure (no state subdirectories).
+
+    Looks for NeXus files directly in the reduced data root.
+    Common pattern: REF_L_<run>.nxs or similar.
+
+    Parameters
+    ----------
+    reduced_root : Path
+        The root directory containing reduced files.
+    ipts : str
+        The IPTS identifier.
+    lite : bool
+        Ignored for flat structures.
+    latest_only : bool
+        Ignored for flat structures (typically only one version per run).
+
+    Returns
+    -------
+    list[ReducedRun]
+        List of ReducedRun objects, sorted by run number.
+    """
+    if not reduced_root.exists():
+        return []
+
+    runs: list[ReducedRun] = {}  # Use dict to handle potential duplicates
+
+    # Get instrument-specific file extensions (e.g., .nxs, .txt)
+    instrument = _get_instrument()
+    extensions = instrument.reduced_file_extensions()
+
+    # Look for files with specified extensions in the root
+    for ext in extensions:
+        # Use glob pattern like "*.nxs" or "*.txt"
+        pattern = f"*{ext}"
+        for data_file in reduced_root.glob(pattern):
+            # Try to extract run number from filename
+            run_number = instrument.run_number_from_filename(data_file.name)
+
+            if run_number is not None:
+                # Use run number as key to handle duplicates
+                # (keep newest if multiple files for same run)
+                if run_number not in runs or (
+                    data_file.stat().st_mtime > runs[run_number].reduced_file.stat().st_mtime
+                ):
+                    runs[run_number] = ReducedRun(
+                        run_number=run_number,
+                        state_id="_flat",  # No state concept for flat structures
+                        timestamp="",  # No timestamp in flat structures
+                        reduced_file=data_file,
+                        record_file=None,
+                        pixelmask_file=None,
+                    )
+
+    return sorted(runs.values(), key=lambda r: r.run_number)
 
 
 def discover_reduced_runs(
@@ -331,14 +466,18 @@ def discover_reduced_runs(
     """
     Discover reduced runs for a given state ID.
 
+    Supports both SNAP-style structured layout and flat reduced data folders.
+
     Parameters
     ----------
     ipts : str
         The IPTS identifier (e.g., "IPTS-12345").
     state_id : str
-        The state ID (16-character hash).
+        The state ID (16-character hash for SNAP, subdirectory name for others,
+        or "_flat" for flat structure).
     lite : bool
         If True, look in the 'lite' subfolder (default). Otherwise 'native'.
+        Only applies to SNAP-style layouts.
     latest_only : bool
         If True (default), return only the latest reduction for each run number.
         If False, return all timestamped reductions.
@@ -348,14 +487,23 @@ def discover_reduced_runs(
     list[ReducedRun]
         List of ReducedRun objects, sorted by run number.
     """
-    mode = "lite" if lite else "native"
     reduced_root = get_reduced_data_root(ipts)
     if reduced_root is None:
         return []
+
+    # Handle flat structure (state_id == "_flat")
+    if state_id == "_flat":
+        return _discover_reduced_runs_flat(reduced_root, ipts, lite=lite, latest_only=latest_only)
+
+    # Handle SNAP-style structured layout
+    mode = "lite" if lite else "native"
     state_root = reduced_root / state_id / mode
 
     if not state_root.exists():
-        return []
+        # Try without mode subdirectory (some instruments don't use lite/native)
+        state_root = reduced_root / state_id
+        if not state_root.exists():
+            return []
 
     # Collect all reductions, keyed by run number
     runs_by_number: dict[int, list[ReducedRun]] = {}
@@ -435,15 +583,15 @@ def discover_reduced_runs(
 def get_run_metadata_lazy(reduced_file: Path | str) -> dict[str, Any]:
     """
     Fetch metadata for a single reduced run (called lazily from API).
-    
+
     This is the function to call when you need metadata for display,
     after the initial run list has been loaded without metadata.
-    
+
     Parameters
     ----------
     reduced_file : Path or str
         Path to the reduced .nxs file.
-        
+
     Returns
     -------
     dict
@@ -574,6 +722,7 @@ def get_reduced_data(
 try:
     from mantid.simpleapi import LoadNexus, mtd
     from mantid.api import WorkspaceGroup
+
     HAS_MANTID = True
 except ImportError:
     HAS_MANTID = False
@@ -583,11 +732,12 @@ except ImportError:
 def _sanitize_array_for_json(arr: list) -> list:
     """
     Replace NaN and Inf values with None for valid JSON serialization.
-    
+
     Python's json.dumps converts NaN/Inf to JavaScript literals (NaN, Infinity)
     which are NOT valid JSON and cause JSON.parse() to fail in browsers.
     """
     import math
+
     return [None if (isinstance(v, float) and (math.isnan(v) or math.isinf(v))) else v for v in arr]
 
 
@@ -741,20 +891,92 @@ def extract_plot_data_from_workspace(workspace_name: str) -> dict[str, Any]:
         return _extract_single_workspace_data(ws)
 
 
+def _load_text_data_for_plot(text_file: Path) -> dict[str, Any]:
+    """
+    Load reduced data from a text file (e.g., REF_L format).
+
+    REF_L text files have format:
+    - Comment lines starting with #
+    - Data columns: Q[1/Angstrom] R delta_R Precision
+
+    Parameters
+    ----------
+    text_file : Path
+        Path to the text file.
+
+    Returns
+    -------
+    dict
+        Plot data with 'x', 'y', 'errors', 'labels', 'type'.
+    """
+    if not text_file.exists():
+        raise FileNotFoundError(f"Text file not found: {text_file}")
+
+    # Parse the file
+    q_values = []
+    r_values = []
+    errors = []
+
+    with open(text_file, "r") as f:
+        for line in f:
+            line = line.strip()
+            # Skip comments and empty lines
+            if not line or line.startswith("#"):
+                continue
+
+            # Parse data line: Q R delta_R Precision
+            parts = line.split()
+            if len(parts) >= 3:
+                try:
+                    q = float(parts[0])
+                    r = float(parts[1])
+                    delta_r = float(parts[2])
+                    q_values.append(q)
+                    r_values.append(r)
+                    errors.append(delta_r)
+                except ValueError:
+                    # Skip lines that can't be parsed as numbers
+                    continue
+
+    # Get instrument for label customization
+    instrument = _get_instrument()
+    try:
+        x_label = instrument.default_x_label()
+    except AttributeError:
+        x_label = "Q (Å⁻¹)"
+
+    return {
+        "type": "single",
+        "name": text_file.stem,
+        "x": q_values,
+        "y": r_values,
+        "errors": errors,
+        "labels": {
+            "x": x_label,
+            "y": "Reflectivity (R)",
+            "title": f"Reduced Data: {text_file.name}",
+        },
+        "meta": {
+            "source_file": str(text_file),
+            "format": "text",
+        },
+    }
+
+
 def load_reduced_data_for_plot(
     reduced_file: Path | str,
     workspace_name: str | None = None,
     workspace_index: int | str | None = None,
 ) -> dict[str, Any]:
     """
-    Load a reduced NeXus file and extract plot data in one call.
+    Load a reduced file and extract plot data in one call.
 
-    This is the main entry point for getting plot data from a reduced file.
+    Supports both NeXus (.nxs) files and text (.txt) files.
 
     Parameters
     ----------
     reduced_file : Path or str
-        Full path to the reduced .nxs file.
+        Full path to the reduced file (.nxs or .txt).
     workspace_name : str, optional
         Name for the workspace. If None, derives from filename.
     workspace_index : int or str, optional
@@ -771,6 +993,12 @@ def load_reduced_data_for_plot(
     """
     reduced_file = Path(reduced_file)
 
+    # Check file extension to determine how to load
+    if reduced_file.suffix.lower() == ".txt":
+        # Handle text files (e.g., REF_L reduced data)
+        return _load_text_data_for_plot(reduced_file)
+
+    # Handle NeXus files (default)
     if workspace_name is None:
         workspace_name = f"run_{reduced_file.stem.split('_')[1]}"
 

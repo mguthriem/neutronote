@@ -36,6 +36,11 @@
                 </div>
             </div>
             <small class="form-hint" style="margin-top: -0.5em; display: block;">Dates are used as the default time range for PV Log queries. Leave blank to skip.</small>
+            <div class="form-group">
+                <label for="setup-reduced-path">Reduced Data Path (optional)</label>
+                <input type="text" id="setup-reduced-path" name="reduced_data_path" placeholder="{% if default_reduced_path %}{{ default_reduced_path }}{% else %}e.g., /SNS/{{ instrument_name }}/{{ config.ipts or 'IPTS-12345' }}/shared/autoreduce{% endif %}" value="{{ config.reduced_data_path or '' }}">
+                <small class="form-hint">Override the default reduced data location. Leave blank to use {% if default_reduced_path %}{{ default_reduced_path }}{% else %}instrument default{% endif %}.</small>
+            </div>
             <button type="submit" class="btn btn-primary btn-large">{% if config.is_configured %}Update{% else %}Start Notebook{% endif %}</button>
         </form>
     </div>
@@ -460,6 +465,20 @@ print('Hello from neutroNote!')"></textarea>
                 <label>Spectra</label>
                 <div class="checkbox-group" id="spectrum-checkboxes">
                     <!-- Populated dynamically based on workspace -->
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label>Axes</label>
+                <div class="checkbox-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="log-x-axis" onchange="toggleLogAxis('x', this.checked)">
+                        <span>Log X</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="log-y-axis" onchange="toggleLogAxis('y', this.checked)">
+                        <span>Log Y</span>
+                    </label>
                 </div>
             </div>
             
@@ -902,8 +921,16 @@ function loadStates() {
             data.states.forEach(stateId => {
                 const opt = document.createElement('option');
                 opt.value = stateId;
-                // Show abbreviated state ID for display
-                opt.textContent = `State: ${stateId.substring(0, 8)}...`;
+                // Special handling for flat structures (state_id == "_flat")
+                if (stateId === "_flat") {
+                    opt.textContent = "All reduced data (flat structure)";
+                } else if (stateId.length === 16 && /^[a-f0-9]{16}$/i.test(stateId)) {
+                    // SNAP-style 16-character hex hash
+                    opt.textContent = `State: ${stateId.substring(0, 8)}...`;
+                } else {
+                    // Other subdirectory name
+                    opt.textContent = `Folder: ${stateId}`;
+                }
                 stateSelect.appendChild(opt);
             });
             
@@ -1429,6 +1456,10 @@ function openPlotViewer() {
     workspaceSelect.value = 'dsp_all';  // Default to combined view
     spectrumSelectGroup.style.display = 'none';
     
+    // Reset log axis checkboxes
+    document.getElementById('log-x-axis').checked = false;
+    document.getElementById('log-y-axis').checked = false;
+    
     // Load plot data
     loadPlotData('dsp_all');
 }
@@ -1642,7 +1673,60 @@ function renderPlot(data) {
         // Clear initial zoom after applying
         initialXRange = null;
         initialYRange = null;
+    } else if (data.type === 'single') {
+        // Single plot from text file (e.g., REF_L reduced data)
+        // Use labels from data if available
+        const xlabel = data.labels?.x || 'x';
+        const ylabel = data.labels?.y || 'y';
+        const plotTitle = data.labels?.title || `Run ${currentRunNumber}`;
+        
+        layout.title = plotTitle;
+        layout.xaxis.title = xlabel;
+        layout.yaxis.title = ylabel;
+        
+        // Create trace with error bars if available
+        const trace = {
+            x: data.x,
+            y: data.y,
+            type: 'scatter',
+            mode: 'lines+markers',
+            name: data.name || 'Data',
+            line: { width: 1.5, color: colors[0] },
+            marker: { size: 3 },
+        };
+        
+        // Add error bars if present
+        if (data.errors && data.errors.length === data.y.length) {
+            trace.error_y = {
+                type: 'data',
+                array: data.errors,
+                visible: true,
+                color: colors[0],
+                thickness: 0.5,
+                width: 0,
+            };
+        }
+        
+        traces.push(trace);
+        spectrumSelectGroup.style.display = 'none';
+        
+        Plotly.newPlot(plotContainer, traces, layout, config);
+        
+        // Clear initial zoom after applying
+        initialXRange = null;
+        initialYRange = null;
     }
+}
+
+// Toggle log axis for X or Y
+function toggleLogAxis(axis, isLog) {
+    const update = {};
+    if (axis === 'x') {
+        update['xaxis.type'] = isLog ? 'log' : 'linear';
+    } else if (axis === 'y') {
+        update['yaxis.type'] = isLog ? 'log' : 'linear';
+    }
+    Plotly.relayout(plotContainer, update);
 }
 
 // Get a user-friendly name for the workspace
@@ -1723,14 +1807,28 @@ function renderMultiRunPlot(data, selectedSpectra) {
     const colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
     
     const runNums = data.runs.filter(r => !r.error).map(r => r.run_number);
-    const title = runNums.length > 3 
-        ? `Runs ${runNums.slice(0, 3).join(', ')}... (${runNums.length} total) - d-spacing`
-        : `Runs ${runNums.join(', ')} - d-spacing`;
+    
+    // Determine axis labels from first valid run
+    let xlabel = 'd (Å)';
+    let ylabel = 'Intensity (arb. units)';
+    let plotTitle = '';
+    
+    const firstValidRun = data.runs.find(r => !r.error);
+    if (firstValidRun && firstValidRun.labels) {
+        xlabel = firstValidRun.labels.x || xlabel;
+        ylabel = firstValidRun.labels.y || ylabel;
+    }
+    
+    if (runNums.length > 3) {
+        plotTitle = `Runs ${runNums.slice(0, 3).join(', ')}... (${runNums.length} total)`;
+    } else {
+        plotTitle = `Runs ${runNums.join(', ')}`;
+    }
     
     const layout = {
-        title: title,
-        xaxis: { title: 'd (Å)', type: 'linear' },
-        yaxis: { title: 'Intensity (arb. units)', type: 'linear' },
+        title: plotTitle,
+        xaxis: { title: xlabel, type: 'linear' },
+        yaxis: { title: ylabel, type: 'linear' },
         showlegend: true,
         legend: { x: 1, xanchor: 'right', y: 1 },
         margin: { l: 60, r: 30, t: 40, b: 45 },
@@ -1767,17 +1865,33 @@ function renderMultiRunPlot(data, selectedSpectra) {
         
         const color = colors[idx % colors.length];
         
-        if (runData.type === '1d') {
+        if (runData.type === '1d' || runData.type === 'single') {
+            // Handle both 1d (NeXus) and single (text file) types
             const filtered = filterValidPairs(runData.x, runData.y);
             if (filtered.x.length > 0) {
-                traces.push({
+                const trace = {
                     x: filtered.x,
                     y: filtered.y,
                     type: 'scatter',
-                    mode: 'lines',
+                    mode: runData.type === 'single' ? 'lines+markers' : 'lines',
                     name: `Run ${runData.run_number}`,
                     line: { width: 1.5, color: color },
-                });
+                    marker: runData.type === 'single' ? { size: 3 } : undefined,
+                };
+                
+                // Add error bars if present (for single/text files)
+                if (runData.errors && runData.errors.length === runData.y.length) {
+                    trace.error_y = {
+                        type: 'data',
+                        array: runData.errors,
+                        visible: true,
+                        color: color,
+                        thickness: 0.5,
+                        width: 0,
+                    };
+                }
+                
+                traces.push(trace);
             }
         } else if (runData.type === '2d') {
             // Multi-spectrum: create separate trace for each selected spectrum

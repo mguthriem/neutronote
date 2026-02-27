@@ -70,6 +70,9 @@ def _migrate_db(app):
         if "experiment_end" not in existing:
             cursor.execute("ALTER TABLE notebook_config ADD COLUMN experiment_end DATETIME")
             app.logger.info("Migration: added notebook_config.experiment_end")
+        if "reduced_data_path" not in existing:
+            cursor.execute("ALTER TABLE notebook_config ADD COLUMN reduced_data_path VARCHAR(500)")
+            app.logger.info("Migration: added notebook_config.reduced_data_path")
 
         conn.commit()
         conn.close()

@@ -40,6 +40,9 @@ pyproject.toml      # Pixi + pip config, tasks, tool settings
   `neutronote/instruments/`. Each instrument defines file paths, PV aliases,
   reduced-data layout, and instrument-specific logic. Selected via
   `--instrument` CLI arg or `NEUTRONOTE_INSTRUMENT` env var (default: SNAP).
+- **State concept (optional)**: SNAP maps runs → 16-char state hashes via
+  snapwrap; other instruments (REF_L) use flat reduced data structures without
+  states. Users can override reduced data path in notebook config.
 - **Entry types** (text, header, neutron-data, code) share a single `Entry`
   model with a `type` discriminator; rendering handled in Jinja partials.
 - **Data backend**: mantid (server-side) for loading/reducing neutron data;
@@ -65,9 +68,20 @@ Data file paths are defined by each instrument plugin. For SNAP:
 |------|---------------|
 | Full NeXus | `/SNS/SNAP/<IPTS>/nexus/SNAP_<run>.nxs.h5` |
 | Lite NeXus | `/SNS/SNAP/<IPTS>/shared/lite/SNAP_<run>.lite.nxs.h5` *(preferred)* |
+| Reduced (state-based) | `/SNS/SNAP/<IPTS>/shared/SNAPRed/<state>/<lite\|native>/<run>/<timestamp>/reduced_*.nxs` |
 
-Other instruments override `nexus_path()`, `nexus_filename()`, etc. in their
-`InstrumentConfig` subclass.
+For REF_L:
+
+| Type | Path template |
+|------|---------------|
+| Full NeXus | `/SNS/REF_L/<IPTS>/nexus/REF_L_<run>.nxs.h5` |
+| Lite NeXus | `/SNS/REF_L/<IPTS>/shared/lite/REF_L_<run>.lite.nxs.h5` |
+| Reduced (flat) | `/SNS/REF_L/<IPTS>/shared/autoreduce/REF_L_<run>.nxs` |
+
+Other instruments override `nexus_path()`, `nexus_filename()`, 
+`reduced_data_root()`, etc. in their `InstrumentConfig` subclass.
+
+Users can override the reduced data path via the notebook config UI.
 
 ## Conventions
 

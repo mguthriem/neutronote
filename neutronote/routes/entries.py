@@ -25,7 +25,12 @@ from werkzeug.utils import secure_filename
 from ..app import allowed_file, ALLOWED_EXTENSIONS
 from ..models import Entry, NotebookConfig, db
 from ..services.metadata import get_run_metadata
-from ..services.data import discover_state_ids, discover_reduced_runs, get_run_metadata_lazy, get_run_metadata_quick
+from ..services.data import (
+    discover_state_ids,
+    discover_reduced_runs,
+    get_run_metadata_lazy,
+    get_run_metadata_quick,
+)
 from ..services.kernel import get_kernel_manager
 
 logger = logging.getLogger(__name__)
@@ -41,11 +46,26 @@ def index():
 
     config = NotebookConfig.get_config()
     entries = Entry.query.order_by(Entry.created_at.asc()).all()
+
+    # Build default reduced data path hint (for UI)
+    default_reduced_path = None
+    if config.ipts:
+        # Check if env var is set
+        env_path = os.environ.get("NEUTRONOTE_REDUCED_DATA_PATH")
+        if env_path:
+            default_reduced_path = env_path.replace("{ipts}", config.ipts)
+        else:
+            # Use instrument default
+            root = instrument.reduced_data_root(config.ipts)
+            if root:
+                default_reduced_path = str(root)
+
     return render_template(
         "entries/index.html",
         entries=entries,
         config=config,
         aliases=pv_aliases,
+        default_reduced_path=default_reduced_path,
     )
 
 
@@ -70,6 +90,7 @@ def setup_notebook():
     notebook_title = request.form.get("notebook_title", "").strip() or None
     experiment_start_str = request.form.get("experiment_start", "").strip()
     experiment_end_str = request.form.get("experiment_end", "").strip()
+    reduced_data_path = request.form.get("reduced_data_path", "").strip() or None
 
     if not ipts_str:
         flash("Please enter an IPTS number.", "error")
@@ -85,14 +106,25 @@ def setup_notebook():
 
     # Verify the IPTS folder exists
     from pathlib import Path
+
     instrument = current_app.config["INSTRUMENT"]
     ipts_path = instrument.ipts_path(ipts)
     if not ipts_path.exists():
         flash(f"IPTS folder not found: {ipts_path}", "error")
         return redirect(url_for("entries.index"))
 
+    # Validate reduced data path if provided
+    if reduced_data_path:
+        reduced_path = Path(reduced_data_path)
+        if not reduced_path.exists():
+            flash(f"Reduced data path not found: {reduced_data_path}", "warning")
+        elif not reduced_path.is_dir():
+            flash(f"Reduced data path is not a directory: {reduced_data_path}", "error")
+            return redirect(url_for("entries.index"))
+
     # Parse optional experiment dates
     from datetime import datetime, timezone
+
     experiment_start = None
     experiment_end = None
     if experiment_start_str:
@@ -117,6 +149,7 @@ def setup_notebook():
     config.title = notebook_title
     config.experiment_start = experiment_start
     config.experiment_end = experiment_end
+    config.reduced_data_path = reduced_data_path
     config.updated_at = datetime.now(timezone.utc)
     db.session.commit()
 
@@ -221,6 +254,7 @@ def uploaded_file(filename):
 # =============================================================================
 # Server-side file browser for image selection
 # =============================================================================
+
 
 def _get_ipts_shared_root():
     """Return the IPTS shared directory root, or None if not configured."""
@@ -348,7 +382,7 @@ def api_pick_image():
 def api_reset_timeline():
     """
     DEV ONLY: Delete all entries from the timeline.
-    
+
     This is a destructive operation for development/testing purposes.
     Only available when the app is running in debug mode.
     """
@@ -358,12 +392,14 @@ def api_reset_timeline():
         # Delete all entries
         num_deleted = Entry.query.delete()
         db.session.commit()
-        
-        return jsonify({
-            "success": True,
-            "message": f"Deleted {num_deleted} entries from timeline",
-            "deleted_count": num_deleted,
-        })
+
+        return jsonify(
+            {
+                "success": True,
+                "message": f"Deleted {num_deleted} entries from timeline",
+                "deleted_count": num_deleted,
+            }
+        )
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
@@ -373,40 +409,40 @@ def api_reset_timeline():
 def upload_snapshot():
     """
     API: Upload a plot snapshot PNG from Plotly.toImage().
-    
+
     Expects JSON body with:
         - image_data: base64-encoded PNG data (data:image/png;base64,...)
-    
+
     Returns:
         - filename: the saved filename to include in data entry
     """
     import base64
-    
+
     data = request.get_json()
     if not data or "image_data" not in data:
         return jsonify({"error": "image_data required"}), 400
-    
+
     image_data = data["image_data"]
-    
+
     # Parse data URL: data:image/png;base64,iVBORw0KGgo...
     if "," in image_data:
         header, encoded = image_data.split(",", 1)
     else:
         encoded = image_data
-    
+
     try:
         image_bytes = base64.b64decode(encoded)
     except Exception as e:
         return jsonify({"error": f"Invalid base64 data: {e}"}), 400
-    
+
     # Generate unique filename
     filename = f"snapshot_{uuid.uuid4().hex}.png"
     upload_folder = current_app.config["UPLOAD_FOLDER"]
     file_path = os.path.join(upload_folder, filename)
-    
+
     with open(file_path, "wb") as f:
         f.write(image_bytes)
-    
+
     return jsonify({"success": True, "filename": filename})
 
 
@@ -414,45 +450,45 @@ def upload_snapshot():
 def execute_code():
     """
     API: Execute Python code in the persistent kernel.
-    
+
     Expects JSON body with:
         - code: Python code string to execute
-    
+
     Returns:
         - success: True/False
         - output: stdout from execution
         - error: error message if failed
         - execution_time: seconds taken
-    
+
     Security: only accepts requests from localhost.
     """
     # Reject requests that don't originate from localhost
     remote = request.remote_addr
     if remote not in ("127.0.0.1", "::1", None):
         abort(403)
-    
+
     data = request.get_json()
     if not data or "code" not in data:
         return jsonify({"error": "code required"}), 400
-    
+
     code = data["code"]
-    
+
     # Execute in persistent kernel
     kernel = get_kernel_manager()
     result = kernel.execute(code)
-    
+
     if result.success:
-        return jsonify({
-            "success": True,
-            "output": result.output,
-            "execution_time": result.execution_time
-        })
+        return jsonify(
+            {"success": True, "output": result.output, "execution_time": result.execution_time}
+        )
     else:
-        return jsonify({
-            "success": False,
-            "error": result.error or result.output,
-            "execution_time": result.execution_time
-        })
+        return jsonify(
+            {
+                "success": False,
+                "error": result.error or result.output,
+                "execution_time": result.execution_time,
+            }
+        )
 
 
 @bp.route("/api/kernel/status")
@@ -462,13 +498,15 @@ def kernel_status():
     status = kernel.get_status()
     memory = kernel.get_memory_info()
     variables = kernel.get_variables()
-    
-    return jsonify({
-        "status": status.to_dict(),
-        "memory": memory.to_dict(),
-        "variables": variables,
-        "variable_count": len(variables),
-    })
+
+    return jsonify(
+        {
+            "status": status.to_dict(),
+            "memory": memory.to_dict(),
+            "variables": variables,
+            "variable_count": len(variables),
+        }
+    )
 
 
 @bp.route("/api/kernel/workspaces")
@@ -476,11 +514,13 @@ def kernel_workspaces():
     """API: Get list of workspaces in the kernel."""
     kernel = get_kernel_manager()
     workspaces = kernel.get_workspaces()
-    
-    return jsonify({
-        "workspaces": [ws.to_dict() for ws in workspaces],
-        "count": len(workspaces),
-    })
+
+    return jsonify(
+        {
+            "workspaces": [ws.to_dict() for ws in workspaces],
+            "count": len(workspaces),
+        }
+    )
 
 
 @bp.route("/api/kernel/restart", methods=["POST"])
@@ -488,11 +528,13 @@ def kernel_restart():
     """API: Restart the kernel (clears all workspaces)."""
     kernel = get_kernel_manager()
     success = kernel.restart()
-    
-    return jsonify({
-        "success": success,
-        "message": "Kernel restarted" if success else "Failed to restart kernel",
-    })
+
+    return jsonify(
+        {
+            "success": success,
+            "message": "Kernel restarted" if success else "Failed to restart kernel",
+        }
+    )
 
 
 @bp.route("/api/kernel/workspaces/<name>", methods=["DELETE"])
@@ -500,24 +542,26 @@ def kernel_delete_workspace(name):
     """API: Delete a workspace from the kernel."""
     kernel = get_kernel_manager()
     success, message = kernel.delete_workspace(name)
-    
-    return jsonify({
-        "success": success,
-        "message": message,
-        "name": name,
-    }), 200 if success else 400
+
+    return jsonify(
+        {
+            "success": success,
+            "message": message,
+            "name": name,
+        }
+    ), (200 if success else 400)
 
 
 @bp.route("/api/create/code", methods=["POST"])
 def api_create_code():
     """
     API: Create a code entry in the timeline.
-    
+
     Expects JSON body with:
         - code: Python code string
         - output: execution output
         - error: True if the output is an error
-    
+
     Returns:
         - success: True/False
         - entry_id: ID of created entry
@@ -525,37 +569,26 @@ def api_create_code():
     data = request.get_json()
     if not data or "code" not in data:
         return jsonify({"error": "code required"}), 400
-    
+
     code = data["code"]
     output = data.get("output", "")
     is_error = data.get("error", False)
-    
+
     # Store code and output as JSON in body
-    body = json.dumps({
-        "code": code,
-        "output": output,
-        "error": is_error
-    })
-    
-    entry = Entry(
-        type=Entry.TYPE_CODE,
-        title=None,
-        body=body
-    )
+    body = json.dumps({"code": code, "output": output, "error": is_error})
+
+    entry = Entry(type=Entry.TYPE_CODE, title=None, body=body)
     db.session.add(entry)
     db.session.commit()
-    
-    return jsonify({
-        "success": True,
-        "entry_id": entry.id
-    })
+
+    return jsonify({"success": True, "entry_id": entry.id})
 
 
 @bp.route("/api/create/data", methods=["POST"])
 def api_create_data():
     """
     API: Create a new data entry from the plot viewer.
-    
+
     Expects JSON body with:
         - run_number: int (single run) OR
         - run_numbers: list of int (multi-run)
@@ -571,17 +604,17 @@ def api_create_data():
     data = request.get_json()
     if not data:
         return jsonify({"error": "JSON body required"}), 400
-    
+
     # Support both single run_number and run_numbers array
     run_number = data.get("run_number")
     run_numbers = data.get("run_numbers", [])
-    
+
     # Normalize to run_numbers list
     if run_number and not run_numbers:
         run_numbers = [int(run_number)]
     elif run_numbers:
         run_numbers = [int(r) for r in run_numbers]
-    
+
     state_id = data.get("state_id")
     workspace = data.get("workspace", "dsp_all")
     selected_spectra = data.get("selected_spectra", [])
@@ -590,15 +623,16 @@ def api_create_data():
     snapshot = data.get("snapshot")  # PNG filename from upload-snapshot
     title = data.get("title", "").strip()
     note = data.get("note", "").strip()
-    
-    if not run_numbers or not state_id:
-        return jsonify({"error": "run_number(s) and state_id required"}), 400
-    
+
+    # state_id is now optional (may be None for instruments without state concept)
+    if not run_numbers:
+        return jsonify({"error": "run_number(s) required"}), 400
+
     # Get run metadata for default title
     config = NotebookConfig.get_config()
     if not config.is_configured:
         return jsonify({"error": "Notebook IPTS not configured"}), 400
-    
+
     # Build the entry body as JSON
     entry_body = {
         "run_numbers": run_numbers,  # Always store as array
@@ -609,17 +643,17 @@ def api_create_data():
         "ipts": config.ipts,
         "note": note,
     }
-    
+
     # Include zoom range if provided
     if x_range:
         entry_body["x_range"] = x_range
     if y_range:
         entry_body["y_range"] = y_range
-    
+
     # Include snapshot filename if provided
     if snapshot:
         entry_body["snapshot"] = snapshot
-    
+
     # Generate title if not provided
     if not title:
         if len(run_numbers) == 1:
@@ -629,23 +663,25 @@ def api_create_data():
             title = f"Runs {', '.join(map(str, run_numbers[:3]))}"
             if len(run_numbers) > 3:
                 title += f"... ({len(run_numbers)} total)"
-    
+
     # Create the entry
     entry = Entry(
         type=Entry.TYPE_DATA,
         title=title,
         body=json.dumps(entry_body),
     )
-    
+
     db.session.add(entry)
     db.session.commit()
-    
+
     run_desc = str(run_numbers[0]) if len(run_numbers) == 1 else f"{len(run_numbers)} runs"
-    return jsonify({
-        "success": True,
-        "entry_id": entry.id,
-        "message": f"Data entry created for {run_desc}",
-    })
+    return jsonify(
+        {
+            "success": True,
+            "entry_id": entry.id,
+            "message": f"Data entry created for {run_desc}",
+        }
+    )
 
 
 @bp.route("/<int:entry_id>")
@@ -699,11 +735,13 @@ def api_get_states():
 
     state_ids = discover_state_ids(config.ipts)
 
-    return jsonify({
-        "ipts": config.ipts,
-        "states": state_ids,
-        "count": len(state_ids),
-    })
+    return jsonify(
+        {
+            "ipts": config.ipts,
+            "states": state_ids,
+            "count": len(state_ids),
+        }
+    )
 
 
 @bp.route("/api/states/<state_id>/runs")
@@ -738,12 +776,14 @@ def api_get_runs(state_id):
     if limit and limit > 0:
         runs = runs[:limit]
 
-    return jsonify({
-        "state_id": state_id,
-        "ipts": config.ipts,
-        "runs": [r.to_dict() for r in runs],
-        "count": len(runs),
-    })
+    return jsonify(
+        {
+            "state_id": state_id,
+            "ipts": config.ipts,
+            "runs": [r.to_dict() for r in runs],
+            "count": len(runs),
+        }
+    )
 
 
 @bp.route("/api/runs/<int:run_number>/info")
@@ -776,11 +816,11 @@ def api_get_run_info(run_number):
 def api_get_run_metadata(run_number):
     """
     API: Get metadata (title, duration, start_time) for a specific run.
-    
+
     This endpoint loads metadata lazily - call it after getting the run list
     to populate metadata for display. It reads directly from the native NeXus
     file to get accurate metadata quickly.
-    
+
     Query params:
         - state_id: (optional) The state ID (not used, metadata from native file)
     """
@@ -791,20 +831,22 @@ def api_get_run_metadata(run_number):
 
     # Read metadata directly from native NeXus file (faster than reduced file)
     metadata = get_run_metadata_quick(config.ipts, run_number)
-    
-    return jsonify({
-        "run_number": run_number,
-        "title": metadata.get("title", ""),
-        "duration": metadata.get("duration", 0.0),
-        "start_time": metadata.get("start_time", ""),
-    })
+
+    return jsonify(
+        {
+            "run_number": run_number,
+            "title": metadata.get("title", ""),
+            "duration": metadata.get("duration", 0.0),
+            "start_time": metadata.get("start_time", ""),
+        }
+    )
 
 
 @bp.route("/api/runs/metadata/batch", methods=["POST"])
 def api_get_run_metadata_batch():
     """
     API: Get metadata for multiple runs in a single request.
-    
+
     Accepts JSON body with 'run_numbers' array.
     Returns metadata for all requested runs.
     """
@@ -816,11 +858,11 @@ def api_get_run_metadata_batch():
     data = request.get_json()
     if not data or "run_numbers" not in data:
         return jsonify({"error": "run_numbers array required in request body"}), 400
-    
+
     run_numbers = data["run_numbers"]
     if not isinstance(run_numbers, list):
         return jsonify({"error": "run_numbers must be an array"}), 400
-    
+
     results = {}
     for run_number in run_numbers[:50]:  # Limit to 50 runs per batch
         try:
@@ -834,7 +876,7 @@ def api_get_run_metadata_batch():
             }
         except (ValueError, TypeError):
             continue
-    
+
     return jsonify({"metadata": results})
 
 
@@ -887,10 +929,18 @@ def api_get_plot_data(run_number):
             workspace_index = workspace_param
 
     try:
+        # Debug logging
+        print(f"DEBUG: Loading plot data for run {run_number}")
+        print(f"DEBUG: File path: {reduced_file}")
+        print(f"DEBUG: File suffix: {reduced_file.suffix if hasattr(reduced_file, 'suffix') else 'N/A'}")
+        print(f"DEBUG: File exists: {reduced_file.exists() if hasattr(reduced_file, 'exists') else 'N/A'}")
+        
         workspace_name = f"run_{run_number}"
         plot_data = load_reduced_data_for_plot(
             reduced_file, workspace_name, workspace_index=workspace_index
         )
+        
+        print(f"DEBUG: Successfully loaded plot data")
 
         # Add run info to the response
         plot_data["run_number"] = run_number
@@ -900,11 +950,19 @@ def api_get_plot_data(run_number):
         return jsonify(plot_data)
 
     except Exception as e:
-        return jsonify({
-            "error": f"Failed to load plot data: {str(e)}",
-            "run_number": run_number,
-            "state_id": state_id,
-        }), 500
+        print(f"DEBUG: Error loading plot data: {e}")
+        import traceback
+        traceback.print_exc()
+        return (
+            jsonify(
+                {
+                    "error": f"Failed to load plot data: {str(e)}",
+                    "run_number": run_number,
+                    "state_id": state_id,
+                }
+            ),
+            500,
+        )
 
 
 @bp.route("/api/runs/multi/plot-data")
@@ -958,10 +1016,12 @@ def api_get_multi_plot_data():
 
     for run_number in run_numbers:
         if run_number not in run_map:
-            multi_data["runs"].append({
-                "run_number": run_number,
-                "error": f"Run {run_number} not found in state {state_id}",
-            })
+            multi_data["runs"].append(
+                {
+                    "run_number": run_number,
+                    "error": f"Run {run_number} not found in state {state_id}",
+                }
+            )
             continue
 
         reduced_file = run_map[run_number].reduced_file
@@ -976,10 +1036,12 @@ def api_get_multi_plot_data():
             multi_data["runs"].append(plot_data)
 
         except Exception as e:
-            multi_data["runs"].append({
-                "run_number": run_number,
-                "error": str(e),
-            })
+            multi_data["runs"].append(
+                {
+                    "run_number": run_number,
+                    "error": str(e),
+                }
+            )
 
     return jsonify(multi_data)
 
@@ -1062,11 +1124,13 @@ def pvlog_query():
         for pv in pv_names:
             ts = svc.query_pv(pv, start, end, max_points=max_points)
             traces.append(ts.to_plot_json())
-        return jsonify({
-            "traces": traces,
-            "start": start.isoformat(),
-            "end": end.isoformat(),
-        })
+        return jsonify(
+            {
+                "traces": traces,
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+            }
+        )
     except Exception as e:
         return jsonify({"error": str(e)})
 
@@ -1108,6 +1172,7 @@ def pvlog_resolve():
     max_points = request.args.get("max_points", 5000, type=int)
 
     from datetime import datetime as _dt
+
     try:
         start = _dt.fromisoformat(start_str) if start_str else None
         end = _dt.fromisoformat(end_str) if end_str else None
@@ -1138,17 +1203,20 @@ def pvlog_resolve():
         # Run intervals for the same time range
         runs = svc.query_runs(start, end)
 
-        return jsonify({
-            "alias": alias.lower(),
-            "traces": traces,
-            "runs": runs,
-            "start": start.isoformat(),
-            "end": end.isoformat(),
-            "skipped": skipped,
-            "skipped_details": skipped_details,
-        })
+        return jsonify(
+            {
+                "alias": alias.lower(),
+                "traces": traces,
+                "runs": runs,
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "skipped": skipped,
+                "skipped_details": skipped_details,
+            }
+        )
     except Exception as e:
         import traceback
+
         logger.error("pvlog_resolve error: %s", traceback.format_exc())
         return jsonify({"error": str(e)})
 
@@ -1176,4 +1244,3 @@ def create_pvlog():
     db.session.commit()
 
     return jsonify({"success": True, "entry_id": entry.id})
-

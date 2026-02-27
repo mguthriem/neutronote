@@ -16,7 +16,7 @@ SNAP_PV_ALIASES: dict[str, dict] = {
             "BL3:SE:PACE1:Pressure",
         ],
         "validity": {
-            "min_valid": 0.0,   # pressures in bar must be positive
+            "min_valid": 0.0,  # pressures in bar must be positive
             "max_valid": None,
         },
     },
@@ -28,7 +28,7 @@ SNAP_PV_ALIASES: dict[str, dict] = {
             "BL3:SE:Lakeshore:KRDG2",
         ],
         "validity": {
-            "min_valid": 0.0,   # temperatures in K must be positive
+            "min_valid": 0.0,  # temperatures in K must be positive
             "max_valid": None,
         },
     },

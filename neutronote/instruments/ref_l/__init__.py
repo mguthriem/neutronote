@@ -37,14 +37,38 @@ class REFLConfig(InstrumentConfig):
         return f"REF_L_{run_number}.lite.nxs.h5"
 
     def run_number_from_filename(self, filename: str) -> int | None:
-        """Extract run number from ``REF_L_<run>.<ext>`` filenames."""
-        prefix = "REF_L_"
-        if filename.startswith(prefix):
+        """Extract run number from REF_L filenames.
+
+        Supports multiple patterns:
+        - Raw data: ``REF_L_<run>.nxs.h5``
+        - Reduced data: ``REFL_<run>_combined_data_auto.txt``
+          (note: no underscore between REF and L)
+        """
+        # Try raw data pattern first: REF_L_<run>.<ext>
+        if filename.startswith("REF_L_"):
             try:
                 # Strip prefix, then take everything before the first dot
-                return int(filename[len(prefix):].split(".")[0])
+                return int(filename[6:].split(".")[0])  # len("REF_L_") = 6
             except (IndexError, ValueError):
                 pass
+
+        # Try reduced data pattern: REFL_<run>_*
+        if filename.startswith("REFL_"):
+            try:
+                # Strip "REFL_" prefix, take digits before next non-digit
+                run_str = filename[5:]  # len("REFL_") = 5
+                # Extract leading digits
+                run_number = ""
+                for char in run_str:
+                    if char.isdigit():
+                        run_number += char
+                    else:
+                        break
+                if run_number:
+                    return int(run_number)
+            except (IndexError, ValueError):
+                pass
+
         return None
 
     # --- Reduced data -------------------------------------------------------
@@ -52,6 +76,14 @@ class REFLConfig(InstrumentConfig):
     def reduced_data_root(self, ipts: str) -> Path:
         """Reduced data stored under ``<IPTS>/shared/autoreduce/``."""
         return self.data_root / ipts / "shared" / "autoreduce"
+
+    def reduced_file_extensions(self) -> list[str]:
+        """REF_L reduced data uses .txt files (pattern: REFL_<run>_combined_data_auto.txt).
+
+        The .nxs files in the autoreduce folder are companion files for processing,
+        not the actual reduced data that users want to browse.
+        """
+        return [".txt"]
 
     # --- PV aliases ---------------------------------------------------------
 
