@@ -3446,10 +3446,18 @@ function addRunBoundaries(data, layout, xRange) {
         rangeStart = new Date(xRange[0]).getTime() / 1000;
         rangeEnd   = new Date(xRange[1]).getTime() / 1000;
     } else {
-        // Use the full data range
-        const allTimes = data.traces.flatMap(t => t.x);
-        rangeStart = Math.min(...allTimes);
-        rangeEnd   = Math.max(...allTimes);
+        // Use the full data range (avoid Math.min/max spread – stack overflow on large arrays)
+        rangeStart = Infinity;
+        rangeEnd   = -Infinity;
+        data.traces.forEach(t => {
+            if (t.x && t.x.length) {
+                // x values are epoch seconds (numbers); first/last are min/max since they're sorted
+                const first = t.x[0], last = t.x[t.x.length - 1];
+                if (first < rangeStart) rangeStart = first;
+                if (last  > rangeEnd)   rangeEnd   = last;
+            }
+        });
+        if (!isFinite(rangeStart)) return;  // no data at all
     }
 
     const visibleRuns = data.runs.filter(r => {

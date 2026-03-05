@@ -242,7 +242,7 @@ def main():
         "-p",
         type=int,
         default=None,
-        help="Port to run server on (default: auto-allocate in 6000-6999)",
+        help="Port to run server on (default: auto-allocate in 6100-6999)",
     )
     args = parser.parse_args()
 
@@ -251,8 +251,9 @@ def main():
         args.instrument or os.environ.get("NEUTRONOTE_INSTRUMENT") or DEFAULT_INSTRUMENT
     )
 
-    # Auto-select a free port in the 6000-6999 range when none specified.
-    def _find_free_port(start=6000, end=6999):
+    # Auto-select a free port in the 6100-6999 range when none specified.
+    # NOTE: port 6000 is blocked by Chrome/Firefox as "unsafe", so we start at 6100.
+    def _find_free_port(start=6100, end=6999):
         import socket
 
         for p in range(start, end + 1):
@@ -265,14 +266,13 @@ def main():
                     continue
         return None
 
-    # If port not provided, pick one automatically
-    # If port not provided, pick one automatically from the 6000 range
+    # If port not provided, pick one automatically from the 6100 range
     port = args.port
     if port is None:
         port = _find_free_port()
         if port is None:
-            print("No free port found in 6000-6999; defaulting to 6000")
-            port = 6000
+            print("No free port found in 6100-6999; defaulting to 6100")
+            port = 6100
 
     # Try to clear any process listening on the port (best-effort)
     try:

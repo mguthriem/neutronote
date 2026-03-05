@@ -109,9 +109,16 @@
                     rangeStart = new Date(xRange[0]).getTime() / 1000;
                     rangeEnd   = new Date(xRange[1]).getTime() / 1000;
                 } else {
-                    const allTimes = data.traces.flatMap(t => t.x);
-                    rangeStart = Math.min(...allTimes);
-                    rangeEnd   = Math.max(...allTimes);
+                    rangeStart = Infinity;
+                    rangeEnd   = -Infinity;
+                    data.traces.forEach(t => {
+                        if (t.x && t.x.length) {
+                            const first = t.x[0], last = t.x[t.x.length - 1];
+                            if (first < rangeStart) rangeStart = first;
+                            if (last  > rangeEnd)   rangeEnd   = last;
+                        }
+                    });
+                    if (!isFinite(rangeStart)) return;
                 }
 
                 const vis = data.runs.filter(r =>
