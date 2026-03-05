@@ -127,6 +127,31 @@ class InstrumentConfig(ABC):
         """
         return None
 
+    def enabled_entry_types(self) -> list[str]:
+        """Entry types available for this instrument in the UI.
+
+        Returns a list of entry-type identifiers that should appear as
+        tabs on the main notebook page.  The order determines tab order.
+
+        Override in a subclass to hide entry types that don't apply.
+        For example, an instrument without state-based reduced data can
+        omit ``"data"``.
+
+        Valid identifiers: ``"text"``, ``"header"``, ``"image"``,
+        ``"data"``, ``"code"``, ``"pvlog"``.
+        """
+        return ["text", "header", "image", "data", "code", "pvlog"]
+
+    # Maps entry-type id → display label shown on the tab button.
+    ENTRY_TYPE_LABELS: dict[str, str] = {
+        "text": "Text",
+        "header": "Header",
+        "image": "Image",
+        "data": "Data",
+        "code": "Code",
+        "pvlog": "PV Log",
+    }
+
     def default_x_label(self) -> str:
         """Default x-axis label for reduced data plots."""
         return "x"
