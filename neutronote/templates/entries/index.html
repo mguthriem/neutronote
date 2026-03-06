@@ -90,6 +90,15 @@
                 <label for="body">Content</label>
                 <textarea id="body" name="body" rows="8" placeholder="Write your notes here... (Markdown supported, use $...$ for inline math)" required></textarea>
             </div>
+            <div class="form-group create-tags-group">
+                <label>Tags (optional)</label>
+                <div class="create-tags-input" data-form="text-form">
+                    <input type="hidden" name="tags" value="">
+                    <div class="create-tags-pills"></div>
+                    <input type="text" class="create-tag-field" placeholder="Add tag…" autocomplete="off">
+                    <div class="create-tag-autocomplete"></div>
+                </div>
+            </div>
             <button type="submit" class="btn btn-primary">Submit Entry</button>
         </form>
         {% endif %}
@@ -103,6 +112,15 @@
                 <label for="run_number">Run Number</label>
                 <input type="number" id="run_number" name="run_number" placeholder="e.g., 67890" required min="1">
                 <small class="form-hint">Fetch run metadata from {{ config.ipts }}</small>
+            </div>
+            <div class="form-group create-tags-group">
+                <label>Tags (optional)</label>
+                <div class="create-tags-input" data-form="header-form">
+                    <input type="hidden" name="tags" value="">
+                    <div class="create-tags-pills"></div>
+                    <input type="text" class="create-tag-field" placeholder="Add tag…" autocomplete="off">
+                    <div class="create-tag-autocomplete"></div>
+                </div>
             </div>
             <button type="submit" class="btn btn-primary">Fetch Run Header</button>
             {% else %}
@@ -149,6 +167,15 @@
                         <label for="caption-upload">Caption (optional)</label>
                         <input type="text" id="caption-upload" name="caption" placeholder="Image caption...">
                     </div>
+                    <div class="form-group create-tags-group">
+                        <label>Tags (optional)</label>
+                        <div class="create-tags-input" data-form="image-upload-form">
+                            <input type="hidden" name="tags" value="">
+                            <div class="create-tags-pills"></div>
+                            <input type="text" class="create-tag-field" placeholder="Add tag…" autocomplete="off">
+                            <div class="create-tag-autocomplete"></div>
+                        </div>
+                    </div>
                     <button type="submit" class="btn btn-primary">Upload Image</button>
                 </form>
             </div>
@@ -158,6 +185,15 @@
                 <div class="form-group">
                     <label for="caption-server">Caption (optional)</label>
                     <input type="text" id="caption-server" placeholder="Image caption...">
+                </div>
+                <div class="form-group create-tags-group">
+                    <label>Tags (optional)</label>
+                    <div class="create-tags-input" data-form="img-server-actions">
+                        <input type="hidden" name="tags" value="">
+                        <div class="create-tags-pills"></div>
+                        <input type="text" class="create-tag-field" placeholder="Add tag…" autocomplete="off">
+                        <div class="create-tag-autocomplete"></div>
+                    </div>
                 </div>
                 <button type="button" class="btn btn-primary" onclick="saveServerImage()">Save Image</button>
             </div>
@@ -197,6 +233,16 @@
             <input type="hidden" id="selected-run" name="run_number" value="">
             <input type="hidden" id="selected-state" name="state_id" value="">
             
+            <div class="form-group create-tags-group">
+                <label>Tags (optional)</label>
+                <div class="create-tags-input" data-form="data-form">
+                    <input type="hidden" name="tags" value="">
+                    <div class="create-tags-pills"></div>
+                    <input type="text" class="create-tag-field" placeholder="Add tag…" autocomplete="off">
+                    <div class="create-tag-autocomplete"></div>
+                </div>
+            </div>
+
             <button type="submit" class="btn btn-primary" id="data-submit-btn" disabled>
                 View Reduced Data
             </button>
@@ -218,6 +264,15 @@ from mantid.simpleapi import *
 print('Hello from neutroNote!')"></textarea>
                 </div>
                 <small class="form-hint">Persistent kernel with mantid. Variables survive across runs.</small>
+            </div>
+            <div class="form-group create-tags-group">
+                <label>Tags (optional)</label>
+                <div class="create-tags-input" data-form="code-form">
+                    <input type="hidden" name="tags" value="">
+                    <div class="create-tags-pills"></div>
+                    <input type="text" class="create-tag-field" placeholder="Add tag…" autocomplete="off">
+                    <div class="create-tag-autocomplete"></div>
+                </div>
             </div>
             <div class="code-actions">
                 <button type="button" class="btn btn-primary" onclick="executeCode()" id="run-code-btn">
@@ -284,6 +339,16 @@ print('Hello from neutroNote!')"></textarea>
             <div class="form-group">
                 <label for="pvlog-title">Entry Title (optional)</label>
                 <input type="text" id="pvlog-title" name="pvlog_title" placeholder="e.g., Pressure & Temperature vs Time">
+            </div>
+
+            <div class="form-group create-tags-group">
+                <label>Tags (optional)</label>
+                <div class="create-tags-input" data-form="pvlog-form">
+                    <input type="hidden" name="tags" value="">
+                    <div class="create-tags-pills"></div>
+                    <input type="text" class="create-tag-field" placeholder="Add tag…" autocomplete="off">
+                    <div class="create-tag-autocomplete"></div>
+                </div>
             </div>
 
             <div class="pvlog-actions">
@@ -564,6 +629,7 @@ print('Hello from neutroNote!')"></textarea>
                 <button type="button" class="btn btn-sm btn-danger" onclick="resetTimeline()" title="DEV: Clear all entries">🗑️ Reset</button>
             </div>
         </div>
+        <div class="tag-filter-bar" id="tag-filter-bar" style="display:none;"></div>
         
         <div class="timeline" id="timeline">
             {% if entries %}
@@ -863,6 +929,7 @@ function clearImageSelection() {
 function saveServerImage() {
     if (!window._imgSelectedPath) return;
     const caption = document.getElementById('caption-server').value.trim();
+    const tags = getCreateFormTags('img-server-actions');
     const btn = event.currentTarget;
     btn.disabled = true;
     btn.textContent = 'Saving…';
@@ -870,7 +937,7 @@ function saveServerImage() {
     fetch('/entries/api/pick-image', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({path: window._imgSelectedPath, caption: caption}),
+        body: JSON.stringify({path: window._imgSelectedPath, caption: caption, tags: tags}),
     })
     .then(r => r.json())
     .then(data => {
@@ -2174,6 +2241,7 @@ async function addPlotToTimeline() {
         x_range: xRange,
         y_range: yRange,
         note: note || '',
+        tags: getCreateFormTags('data-form'),
     };
     
     // Include snapshot filename if captured
@@ -2741,6 +2809,8 @@ async function addCodeToTimeline() {
         alert('Please run the code first before adding to timeline.');
         return;
     }
+
+    const tags = getCreateFormTags('code-form');
     
     try {
         const response = await fetch('/entries/api/create/code', {
@@ -2749,7 +2819,8 @@ async function addCodeToTimeline() {
             body: JSON.stringify({
                 code: code,
                 output: lastCodeOutput,
-                error: lastCodeError
+                error: lastCodeError,
+                tags: tags
             })
         });
         
@@ -2762,6 +2833,7 @@ async function addCodeToTimeline() {
             // Clear the form
             codeEditor.value = '';
             clearCodeOutput();
+            clearCreateFormTags('code-form');
             
             // Show success
             alert('Code added to timeline!');
@@ -3336,6 +3408,7 @@ function savePVLogEntry(xRange) {
         body: JSON.stringify({
             title: title,
             data: saveData,
+            tags: getCreateFormTags('pvlog-form'),
         }),
     })
     .then(r => r.json())
@@ -3651,6 +3724,532 @@ function savePVLogFromViewer() {
     closePVLogViewer();
     savePVLogEntry(xRange);
 }
+
+// =========================================================================
+// Tag System
+// =========================================================================
+
+// Cache of all tags for autocomplete
+let _tagCache = null;
+let _tagCacheTime = 0;
+const TAG_CACHE_MS = 30000;  // 30s
+
+/**
+ * Fetch all tags (with caching).
+ */
+async function fetchTags(prefix) {
+    const now = Date.now();
+    // If we have a cache and no prefix filter, use it
+    if (_tagCache && !prefix && (now - _tagCacheTime) < TAG_CACHE_MS) {
+        return _tagCache;
+    }
+    const url = prefix
+        ? `/entries/api/tags?q=${encodeURIComponent(prefix)}`
+        : '/entries/api/tags';
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (!prefix) {
+        _tagCache = data;
+        _tagCacheTime = now;
+    }
+    return data;
+}
+
+/**
+ * Invalidate the tag cache (after add/remove).
+ */
+function invalidateTagCache() {
+    _tagCache = null;
+}
+
+/**
+ * Show the tag footer on an entry (called by hover trigger).
+ */
+function showTagFooter(entryId) {
+    const footer = document.getElementById('entry-tags-' + entryId);
+    if (footer) {
+        footer.style.display = '';
+        // Immediately show the tag input
+        const addBtn = footer.querySelector('.tag-add-btn');
+        if (addBtn) showTagInput(entryId, addBtn);
+    }
+}
+
+/**
+ * Show an inline tag input next to the "+ Tag" button.
+ */
+function showTagInput(entryId, addBtn) {
+    // Don't create duplicate inputs
+    const footer = document.getElementById('entry-tags-' + entryId);
+    if (footer.querySelector('.tag-input-wrapper')) return;
+
+    addBtn.style.display = 'none';
+
+    const wrapper = document.createElement('span');
+    wrapper.className = 'tag-input-wrapper';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Type tag…';
+    input.setAttribute('autocomplete', 'off');
+    wrapper.appendChild(input);
+
+    // Autocomplete dropdown
+    const dropdown = document.createElement('div');
+    dropdown.className = 'tag-autocomplete';
+    dropdown.style.display = 'none';
+    wrapper.appendChild(dropdown);
+
+    footer.insertBefore(wrapper, addBtn);
+    input.focus();
+
+    let activeIdx = -1;
+
+    // Fetch and render autocomplete suggestions
+    async function updateSuggestions() {
+        const q = input.value.trim();
+        if (q.length === 0) {
+            dropdown.style.display = 'none';
+            return;
+        }
+        const tags = await fetchTags(q);
+        // Filter out tags already on this entry
+        const existing = new Set();
+        footer.querySelectorAll('.tag-pill').forEach(p => {
+            existing.add(p.dataset.tagName.toLowerCase());
+        });
+        const filtered = tags.filter(t => !existing.has(t.name.toLowerCase()));
+
+        if (filtered.length === 0 && q.length > 0) {
+            // Show "create new" option
+            dropdown.innerHTML = `<div class="tag-autocomplete-item" data-name="${escapeAttr(q)}">Create "<strong>${escapeHtml(q)}</strong>"</div>`;
+            dropdown.style.display = '';
+        } else if (filtered.length > 0) {
+            dropdown.innerHTML = filtered.map((t, i) =>
+                `<div class="tag-autocomplete-item" data-name="${escapeAttr(t.name)}">${escapeHtml(t.name)} <span class="tag-count">${t.count}</span></div>`
+            ).join('');
+            dropdown.style.display = '';
+        } else {
+            dropdown.style.display = 'none';
+        }
+        activeIdx = -1;
+    }
+
+    input.addEventListener('input', updateSuggestions);
+
+    // Keyboard navigation
+    input.addEventListener('keydown', function(e) {
+        const items = dropdown.querySelectorAll('.tag-autocomplete-item');
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeIdx = Math.min(activeIdx + 1, items.length - 1);
+            items.forEach((it, i) => it.classList.toggle('active', i === activeIdx));
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeIdx = Math.max(activeIdx - 1, 0);
+            items.forEach((it, i) => it.classList.toggle('active', i === activeIdx));
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (activeIdx >= 0 && items[activeIdx]) {
+                commitTag(entryId, items[activeIdx].dataset.name, footer, wrapper, addBtn);
+            } else if (input.value.trim()) {
+                commitTag(entryId, input.value.trim(), footer, wrapper, addBtn);
+            }
+        } else if (e.key === 'Escape') {
+            closeTagInput(wrapper, addBtn);
+        }
+    });
+
+    // Click on suggestion
+    dropdown.addEventListener('mousedown', function(e) {
+        const item = e.target.closest('.tag-autocomplete-item');
+        if (item) {
+            e.preventDefault();
+            commitTag(entryId, item.dataset.name, footer, wrapper, addBtn);
+        }
+    });
+
+    // Close on blur (with delay so click can register)
+    input.addEventListener('blur', function() {
+        setTimeout(() => {
+            if (document.activeElement !== input) {
+                closeTagInput(wrapper, addBtn);
+            }
+        }, 200);
+    });
+}
+
+/**
+ * Commit a tag: POST to API, add pill to DOM.
+ */
+async function commitTag(entryId, tagName, footer, wrapper, addBtn) {
+    if (!tagName.trim()) return;
+
+    const resp = await fetch(`/entries/api/entries/${entryId}/tags`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: tagName.trim()})
+    });
+    const data = await resp.json();
+    if (data.error) {
+        console.error('Tag error:', data.error);
+        return;
+    }
+
+    invalidateTagCache();
+
+    // Add pill to footer (before the add button)
+    const pill = document.createElement('span');
+    pill.className = 'tag-pill';
+    pill.dataset.tagId = data.id;
+    pill.dataset.tagName = data.name;
+    pill.textContent = data.name;
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'tag-remove';
+    removeBtn.title = 'Remove tag';
+    removeBtn.textContent = '×';
+    removeBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        removeTag(entryId, data.id, this);
+    });
+    pill.appendChild(removeBtn);
+
+    footer.insertBefore(pill, addBtn);
+
+    // Store tag name on the entry card for filtering
+    const card = document.querySelector(`.entry-card[data-entry-id="${entryId}"]`);
+    if (card) {
+        let tags = (card.dataset.tags || '').split(',').filter(Boolean);
+        if (!tags.includes(data.name.toLowerCase())) {
+            tags.push(data.name.toLowerCase());
+        }
+        card.dataset.tags = tags.join(',');
+    }
+
+    // Close input and re-show add button
+    closeTagInput(wrapper, addBtn);
+
+    // Update the filter bar with the new tag
+    renderTagFilterBar();
+}
+
+/**
+ * Remove a tag from an entry.
+ */
+async function removeTag(entryId, tagId, btn) {
+    const resp = await fetch(`/entries/api/entries/${entryId}/tags/${tagId}`, {
+        method: 'DELETE',
+        headers: {'Content-Type': 'application/json'}
+    });
+    const data = await resp.json();
+    if (data.error) {
+        console.error('Tag remove error:', data.error);
+        return;
+    }
+
+    invalidateTagCache();
+
+    // Remove pill from DOM
+    const pill = btn.closest('.tag-pill');
+    const tagName = pill ? pill.dataset.tagName : '';
+    if (pill) pill.remove();
+
+    // Update data-tags on card
+    if (tagName) {
+        const card = document.querySelector(`.entry-card[data-entry-id="${entryId}"]`);
+        if (card) {
+            let tags = (card.dataset.tags || '').split(',').filter(Boolean);
+            tags = tags.filter(t => t !== tagName.toLowerCase());
+            card.dataset.tags = tags.join(',');
+        }
+    }
+
+    // If no tags left, hide footer
+    const footer = document.getElementById('entry-tags-' + entryId);
+    if (footer && footer.querySelectorAll('.tag-pill').length === 0) {
+        footer.style.display = 'none';
+    }
+
+    // Update filter bar (tag may have been removed entirely)
+    renderTagFilterBar();
+    // Refresh filter if active
+    applyTagFilter();
+}
+
+/**
+ * Close the inline tag input, restore the "+ Tag" button.
+ */
+function closeTagInput(wrapper, addBtn) {
+    if (wrapper && wrapper.parentNode) wrapper.remove();
+    if (addBtn) addBtn.style.display = '';
+}
+
+/**
+ * Escape text for safe HTML insertion.
+ */
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+/**
+ * Escape text for use in HTML attributes.
+ */
+function escapeAttr(text) {
+    return text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// =========================================================================
+// Timeline Tag Filter
+// =========================================================================
+
+// Set of active tag filters (lowercase names)
+const activeTagFilters = new Set();
+// All tags that exist in the notebook (for the filter bar)
+let allKnownTags = [];
+
+/**
+ * Collect all unique tag names currently visible on entry cards.
+ */
+function collectAllTags() {
+    const tagSet = new Set();
+    document.querySelectorAll('.entry-tags .tag-pill[data-tag-name]').forEach(pill => {
+        tagSet.add(pill.dataset.tagName);
+    });
+    allKnownTags = Array.from(tagSet).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+}
+
+/**
+ * Toggle a tag in the timeline filter.
+ */
+function toggleTagFilter(tagName) {
+    const lower = tagName.toLowerCase();
+    if (activeTagFilters.has(lower)) {
+        activeTagFilters.delete(lower);
+    } else {
+        activeTagFilters.add(lower);
+    }
+    renderTagFilterBar();
+    applyTagFilter();
+}
+
+/**
+ * Render the tag filter bar above the timeline.
+ * Always visible when tags exist; active filters are highlighted.
+ */
+function renderTagFilterBar() {
+    const bar = document.getElementById('tag-filter-bar');
+    collectAllTags();
+    if (allKnownTags.length === 0) {
+        bar.style.display = 'none';
+        bar.innerHTML = '';
+        return;
+    }
+    bar.style.display = '';
+    let html = '<span class="tag-filter-label">🏷 Filter:</span>';
+    allKnownTags.forEach(name => {
+        const isActive = activeTagFilters.has(name.toLowerCase());
+        const activeClass = isActive ? ' tag-filter-active' : '';
+        html += `<span class="tag-filter-pill${activeClass}" onclick="toggleTagFilter('${escapeAttr(name)}')">${escapeHtml(name)}</span>`;
+    });
+    if (activeTagFilters.size > 0) {
+        html += `<span class="tag-filter-clear" onclick="clearTagFilter()">✕ Clear</span>`;
+    }
+    bar.innerHTML = html;
+}
+
+/**
+ * Apply the active tag filters: show/hide entry cards.
+ */
+function applyTagFilter() {
+    const cards = document.querySelectorAll('.entry-card[data-entry-id]');
+    if (activeTagFilters.size === 0) {
+        cards.forEach(c => c.style.display = '');
+        return;
+    }
+    cards.forEach(card => {
+        const cardTags = (card.dataset.tags || '').split(',').filter(Boolean);
+        // Show if card has ANY of the active filters
+        const match = cardTags.some(t => activeTagFilters.has(t));
+        card.style.display = match ? '' : 'none';
+    });
+}
+
+/**
+ * Clear all tag filters.
+ */
+function clearTagFilter() {
+    activeTagFilters.clear();
+    renderTagFilterBar();
+    applyTagFilter();
+}
+
+// =========================================================================
+// Create-time Tag Input (left panel forms)
+// =========================================================================
+
+/**
+ * Initialize all .create-tags-input widgets on the page.
+ * Each widget has: hidden input (name=tags), pills container, text field, autocomplete dropdown.
+ */
+function initCreateTagInputs() {
+    document.querySelectorAll('.create-tags-input').forEach(container => {
+        const hidden = container.querySelector('input[name="tags"]');
+        const pillsDiv = container.querySelector('.create-tags-pills');
+        const field = container.querySelector('.create-tag-field');
+        const dropdown = container.querySelector('.create-tag-autocomplete');
+        let acIndex = -1;  // autocomplete highlight index
+        let currentTags = [];  // tags added to this widget
+
+        // Click on container focuses the input
+        container.addEventListener('click', () => field.focus());
+
+        // Sync hidden field with currentTags
+        function syncHidden() {
+            hidden.value = currentTags.join(',');
+        }
+
+        // Add a tag pill
+        function addTag(name) {
+            name = name.trim();
+            if (!name) return;
+            // Case-insensitive duplicate check
+            if (currentTags.some(t => t.toLowerCase() === name.toLowerCase())) return;
+            currentTags.push(name);
+            syncHidden();
+
+            const pill = document.createElement('span');
+            pill.className = 'tag-pill';
+            pill.dataset.tagName = name;
+            pill.textContent = name;
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'tag-remove';
+            removeBtn.textContent = '×';
+            removeBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                currentTags = currentTags.filter(t => t.toLowerCase() !== name.toLowerCase());
+                syncHidden();
+                pill.remove();
+            });
+            pill.appendChild(removeBtn);
+            pillsDiv.appendChild(pill);
+
+            field.value = '';
+            closeDropdown();
+        }
+
+        function closeDropdown() {
+            dropdown.classList.remove('open');
+            dropdown.innerHTML = '';
+            acIndex = -1;
+        }
+
+        // Fetch + render autocomplete
+        async function updateAutocomplete() {
+            const q = field.value.trim();
+            if (!q) { closeDropdown(); return; }
+
+            const tags = await fetchTags(q);
+            // Filter out tags already added
+            const filtered = tags.filter(t => !currentTags.some(c => c.toLowerCase() === t.name.toLowerCase()));
+            if (filtered.length === 0) { closeDropdown(); return; }
+
+            dropdown.innerHTML = '';
+            acIndex = -1;
+            filtered.forEach((tag, i) => {
+                const item = document.createElement('div');
+                item.className = 'tag-autocomplete-item';
+                item.innerHTML = `<span class="tag-name">${escapeHtml(tag.name)}</span><span class="tag-count">${tag.count}</span>`;
+                item.addEventListener('mousedown', (e) => {
+                    e.preventDefault();  // Prevent blur
+                    addTag(tag.name);
+                });
+                dropdown.appendChild(item);
+            });
+            dropdown.classList.add('open');
+        }
+
+        field.addEventListener('input', updateAutocomplete);
+
+        field.addEventListener('keydown', function(e) {
+            const items = dropdown.querySelectorAll('.tag-autocomplete-item');
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                acIndex = Math.min(acIndex + 1, items.length - 1);
+                items.forEach((it, i) => it.classList.toggle('active', i === acIndex));
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                acIndex = Math.max(acIndex - 1, 0);
+                items.forEach((it, i) => it.classList.toggle('active', i === acIndex));
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (acIndex >= 0 && items[acIndex]) {
+                    addTag(items[acIndex].querySelector('.tag-name').textContent);
+                } else if (field.value.trim()) {
+                    addTag(field.value);
+                }
+            } else if (e.key === 'Escape') {
+                closeDropdown();
+            } else if (e.key === 'Backspace' && field.value === '' && currentTags.length > 0) {
+                // Remove last tag on backspace in empty field
+                const last = currentTags.pop();
+                syncHidden();
+                const lastPill = pillsDiv.querySelector(`.tag-pill[data-tag-name="${CSS.escape(last)}"]`);
+                if (lastPill) lastPill.remove();
+            }
+        });
+
+        field.addEventListener('blur', () => {
+            // Small delay to allow mousedown on dropdown items
+            setTimeout(closeDropdown, 150);
+        });
+    });
+}
+
+/**
+ * Get tags from a create-tags-input widget by form ID.
+ * Returns array of tag name strings.
+ */
+function getCreateFormTags(formId) {
+    const container = document.querySelector(`.create-tags-input[data-form="${formId}"]`);
+    if (!container) return [];
+    const hidden = container.querySelector('input[name="tags"]');
+    if (!hidden || !hidden.value.trim()) return [];
+    return hidden.value.split(',').filter(Boolean);
+}
+
+/**
+ * Clear the tags from a create-tags-input widget.
+ */
+function clearCreateFormTags(formId) {
+    const container = document.querySelector(`.create-tags-input[data-form="${formId}"]`);
+    if (!container) return;
+    const hidden = container.querySelector('input[name="tags"]');
+    const pillsDiv = container.querySelector('.create-tags-pills');
+    if (hidden) hidden.value = '';
+    if (pillsDiv) pillsDiv.innerHTML = '';
+}
+
+// On page load: populate data-tags on each entry card and render filter bar
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.entry-card[data-entry-id]').forEach(card => {
+        const footer = card.querySelector('.entry-tags');
+        if (!footer) return;
+        const tags = [];
+        footer.querySelectorAll('.tag-pill').forEach(pill => {
+            tags.push(pill.dataset.tagName.toLowerCase());
+        });
+        card.dataset.tags = tags.join(',');
+    });
+    // Render the filter bar with all existing tags
+    renderTagFilterBar();
+    // Initialize create-time tag inputs
+    initCreateTagInputs();
+});
 
 </script>
 {% endblock %}

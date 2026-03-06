@@ -623,6 +623,251 @@ class TestPVLogPhase0:
             assert len(body["traces"]) == 1
 
 
+class TestEntryTags:
+    """Tests for the tag system: CRUD, attach/detach, autocomplete."""
+
+    def test_list_tags_empty(self, client):
+        """GET /api/tags returns empty list when no tags exist."""
+        resp = client.get("/entries/api/tags")
+        assert resp.status_code == 200
+        assert resp.get_json() == []
+
+    def test_add_tag_to_entry(self, app, client):
+        """POST /api/entries/<id>/tags creates a tag and attaches it."""
+        with app.app_context():
+            entry = Entry(type=Entry.TYPE_TEXT, body="Test")
+            db.session.add(entry)
+            db.session.commit()
+            entry_id = entry.id
+
+        resp = client.post(
+            f"/entries/api/entries/{entry_id}/tags",
+            json={"name": "brucite A"},
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["name"] == "brucite A"
+        assert "id" in data
+
+    def test_add_tag_case_insensitive(self, app, client):
+        """Adding the same tag with different case reuses the existing tag."""
+        with app.app_context():
+            entry = Entry(type=Entry.TYPE_TEXT, body="Test")
+            db.session.add(entry)
+            db.session.commit()
+            entry_id = entry.id
+
+        # Create with lowercase
+        r1 = client.post(
+            f"/entries/api/entries/{entry_id}/tags",
+            json={"name": "Brucite"},
+            content_type="application/json",
+        )
+        # Add again with different case
+        r2 = client.post(
+            f"/entries/api/entries/{entry_id}/tags",
+            json={"name": "brucite"},
+            content_type="application/json",
+        )
+        assert r1.get_json()["id"] == r2.get_json()["id"]
+
+    def test_add_tag_to_nonexistent_entry(self, client):
+        """Adding a tag to a missing entry returns 404."""
+        resp = client.post(
+            "/entries/api/entries/9999/tags",
+            json={"name": "test"},
+            content_type="application/json",
+        )
+        assert resp.status_code == 404
+
+    def test_add_tag_empty_name(self, app, client):
+        """Adding a tag with empty name returns 400."""
+        with app.app_context():
+            entry = Entry(type=Entry.TYPE_TEXT, body="Test")
+            db.session.add(entry)
+            db.session.commit()
+            entry_id = entry.id
+
+        resp = client.post(
+            f"/entries/api/entries/{entry_id}/tags",
+            json={"name": "  "},
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+
+    def test_list_tags_after_add(self, app, client):
+        """Tags appear in the list after being added to an entry."""
+        with app.app_context():
+            entry = Entry(type=Entry.TYPE_TEXT, body="Test")
+            db.session.add(entry)
+            db.session.commit()
+            entry_id = entry.id
+
+        client.post(
+            f"/entries/api/entries/{entry_id}/tags",
+            json={"name": "calcite"},
+            content_type="application/json",
+        )
+        resp = client.get("/entries/api/tags")
+        tags = resp.get_json()
+        assert len(tags) == 1
+        assert tags[0]["name"] == "calcite"
+        assert tags[0]["count"] == 1
+
+    def test_list_tags_prefix_filter(self, app, client):
+        """GET /api/tags?q=bru filters by prefix."""
+        with app.app_context():
+            entry = Entry(type=Entry.TYPE_TEXT, body="Test")
+            db.session.add(entry)
+            db.session.commit()
+            entry_id = entry.id
+
+        client.post(
+            f"/entries/api/entries/{entry_id}/tags",
+            json={"name": "brucite A"},
+            content_type="application/json",
+        )
+        client.post(
+            f"/entries/api/entries/{entry_id}/tags",
+            json={"name": "calcite"},
+            content_type="application/json",
+        )
+
+        resp = client.get("/entries/api/tags?q=bru")
+        tags = resp.get_json()
+        assert len(tags) == 1
+        assert tags[0]["name"] == "brucite A"
+
+    def test_remove_tag_from_entry(self, app, client):
+        """DELETE /api/entries/<id>/tags/<tag_id> detaches the tag."""
+        with app.app_context():
+            entry = Entry(type=Entry.TYPE_TEXT, body="Test")
+            db.session.add(entry)
+            db.session.commit()
+            entry_id = entry.id
+
+        r = client.post(
+            f"/entries/api/entries/{entry_id}/tags",
+            json={"name": "olivine"},
+            content_type="application/json",
+        )
+        tag_id = r.get_json()["id"]
+
+        resp = client.delete(f"/entries/api/entries/{entry_id}/tags/{tag_id}")
+        assert resp.status_code == 200
+        assert resp.get_json()["success"] is True
+
+        # Tag should be auto-deleted since it's orphaned
+        resp2 = client.get("/entries/api/tags")
+        assert len(resp2.get_json()) == 0
+
+    def test_tag_not_deleted_if_still_used(self, app, client):
+        """Removing a tag from one entry doesn't delete it if used elsewhere."""
+        with app.app_context():
+            e1 = Entry(type=Entry.TYPE_TEXT, body="One")
+            e2 = Entry(type=Entry.TYPE_TEXT, body="Two")
+            db.session.add_all([e1, e2])
+            db.session.commit()
+            e1_id, e2_id = e1.id, e2.id
+
+        # Attach same tag to both entries
+        r1 = client.post(
+            f"/entries/api/entries/{e1_id}/tags",
+            json={"name": "shared-tag"},
+            content_type="application/json",
+        )
+        tag_id = r1.get_json()["id"]
+        client.post(
+            f"/entries/api/entries/{e2_id}/tags",
+            json={"name": "shared-tag"},
+            content_type="application/json",
+        )
+
+        # Remove from first entry
+        client.delete(f"/entries/api/entries/{e1_id}/tags/{tag_id}")
+
+        # Tag should still exist (attached to e2)
+        resp = client.get("/entries/api/tags")
+        tags = resp.get_json()
+        assert len(tags) == 1
+        assert tags[0]["count"] == 1
+
+    def test_create_text_with_tags(self, client):
+        """Creating a text entry with tags= form field attaches tags."""
+        resp = client.post(
+            "/entries/create/text",
+            data={"body": "Tagged entry", "title": "test", "tags": "alpha,beta"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+
+        # Verify tags were created and attached
+        tags_resp = client.get("/entries/api/tags")
+        names = sorted(t["name"].lower() for t in tags_resp.get_json())
+        assert "alpha" in names
+        assert "beta" in names
+
+    def test_create_code_with_tags(self, client):
+        """Creating a code entry via API with tags attaches them."""
+        resp = client.post(
+            "/entries/api/create/code",
+            json={"code": "print(1)", "output": "1", "error": False, "tags": ["gamma"]},
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+
+        tags_resp = client.get("/entries/api/tags")
+        names = [t["name"].lower() for t in tags_resp.get_json()]
+        assert "gamma" in names
+
+    def test_create_with_empty_tags(self, client):
+        """Creating an entry with empty tags= field works fine."""
+        resp = client.post(
+            "/entries/create/text",
+            data={"body": "No tags", "title": "", "tags": ""},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        tags_resp = client.get("/entries/api/tags")
+        assert tags_resp.get_json() == []
+
+    def test_create_pvlog_with_tags(self, app, client):
+        """Creating a PV Log entry via API with tags attaches them."""
+        resp = client.post(
+            "/entries/api/create/pvlog",
+            json={
+                "title": "Tagged PV",
+                "data": {
+                    "traces": [{"name": "PV1", "x": [1, 2], "y": [10, 20]}],
+                    "start": "2025-06-01T00:00:00",
+                    "end": "2025-06-15T00:00:00",
+                },
+                "tags": ["pressure", "temperature"],
+            },
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+
+        # Verify tags were created and attached
+        tags_resp = client.get("/entries/api/tags")
+        names = sorted(t["name"].lower() for t in tags_resp.get_json())
+        assert "pressure" in names
+        assert "temperature" in names
+
+        # Verify tags are actually on the entry
+        with app.app_context():
+            entry = Entry.query.filter_by(type="pvlog").first()
+            assert entry is not None
+            tag_names = [t.name.lower() for t in entry.tags.all()]
+            assert "pressure" in tag_names
+            assert "temperature" in tag_names
+
+
 class TestInstrumentAbstraction:
     """Tests for the instrument plugin system."""
 
