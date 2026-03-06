@@ -23,7 +23,7 @@ from flask import (
 from werkzeug.utils import secure_filename
 
 from ..app import allowed_file, ALLOWED_EXTENSIONS
-from ..models import Entry, NotebookConfig, db
+from ..models import Entry, NotebookConfig, Tag, db
 from ..services.metadata import get_run_metadata
 from ..services.data import (
     discover_state_ids,
@@ -1244,3 +1244,79 @@ def create_pvlog():
     db.session.commit()
 
     return jsonify({"success": True, "entry_id": entry.id})
+
+
+# =========================================================================
+# Tag API
+# =========================================================================
+
+
+@bp.route("/api/tags")
+def list_tags():
+    """Return all tags with their usage count (for autocomplete).
+
+    Optional query param ``q`` filters by prefix (case-insensitive).
+    """
+    q = request.args.get("q", "").strip().lower()
+    query = Tag.query
+    if q:
+        query = query.filter(Tag.name.ilike(f"{q}%"))
+    tags = query.order_by(Tag.name).all()
+
+    result = []
+    for tag in tags:
+        result.append({"id": tag.id, "name": tag.name, "count": tag.entries.count()})
+    return jsonify(result)
+
+
+@bp.route("/api/entries/<int:entry_id>/tags", methods=["POST"])
+def add_tag_to_entry(entry_id):
+    """Attach a tag to an entry.  Creates the tag if it doesn't exist.
+
+    Expects JSON body: ``{"name": "brucite A"}``
+    """
+    entry = db.session.get(Entry, entry_id)
+    if entry is None:
+        return jsonify({"error": "Entry not found"}), 404
+
+    data = request.get_json()
+    if not data or not data.get("name", "").strip():
+        return jsonify({"error": "Tag name required"}), 400
+
+    name = data["name"].strip()
+
+    # Find or create the tag (case-insensitive match)
+    tag = Tag.query.filter(Tag.name.ilike(name)).first()
+    if tag is None:
+        tag = Tag(name=name)
+        db.session.add(tag)
+
+    # Attach if not already linked
+    if tag not in entry.tags.all():
+        entry.tags.append(tag)
+
+    db.session.commit()
+    return jsonify({"id": tag.id, "name": tag.name})
+
+
+@bp.route("/api/entries/<int:entry_id>/tags/<int:tag_id>", methods=["DELETE"])
+def remove_tag_from_entry(entry_id, tag_id):
+    """Detach a tag from an entry."""
+    entry = db.session.get(Entry, entry_id)
+    if entry is None:
+        return jsonify({"error": "Entry not found"}), 404
+
+    tag = db.session.get(Tag, tag_id)
+    if tag is None:
+        return jsonify({"error": "Tag not found"}), 404
+
+    if tag in entry.tags.all():
+        entry.tags.remove(tag)
+
+    # If the tag is now orphaned (no entries), delete it
+    db.session.flush()
+    if tag.entries.count() == 0:
+        db.session.delete(tag)
+
+    db.session.commit()
+    return jsonify({"success": True})

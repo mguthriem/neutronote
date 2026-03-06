@@ -643,13 +643,167 @@ a:hover {
     margin-top: 0.5rem;
     padding-top: 0.5rem;
     border-top: 1px solid var(--color-border);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem;
 }
 
-.tag {
+.tag-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0.15rem 0.5rem;
+    background: var(--color-bg-secondary, #f0f0f0);
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    font-size: 0.75rem;
+    color: var(--color-text-muted, #666);
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+}
+
+.tag-pill:hover {
+    background: var(--color-primary-light, #e0ecff);
+}
+
+.tag-remove {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0 0 0 0.1rem;
+    font-size: 0.85rem;
+    line-height: 1;
+    color: var(--color-text-muted, #999);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.tag-pill:hover .tag-remove {
+    opacity: 1;
+}
+
+.tag-remove:hover {
+    color: var(--color-danger, #d32f2f);
+}
+
+.tag-add-btn {
     display: inline-block;
-    margin-right: 0.5rem;
+    padding: 0.1rem 0.45rem;
+    background: none;
+    border: 1px dashed var(--color-border);
+    border-radius: 999px;
+    font-size: 0.7rem;
+    color: var(--color-text-muted, #999);
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+}
+
+.tag-add-btn:hover {
+    border-color: var(--color-primary);
     color: var(--color-primary);
-    font-size: 0.875rem;
+}
+
+.tag-input-wrapper {
+    display: inline-flex;
+    align-items: center;
+    position: relative;
+}
+
+.tag-input-wrapper input {
+    width: 120px;
+    padding: 0.15rem 0.4rem;
+    font-size: 0.75rem;
+    border: 1px solid var(--color-primary);
+    border-radius: 999px;
+    outline: none;
+}
+
+.tag-autocomplete {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 50;
+    background: #fff;
+    border: 1px solid var(--color-border);
+    border-radius: 0.3rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    max-height: 160px;
+    overflow-y: auto;
+    min-width: 140px;
+}
+
+.tag-autocomplete-item {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.tag-autocomplete-item:hover,
+.tag-autocomplete-item.active {
+    background: var(--color-primary-light, #e0ecff);
+}
+
+.tag-autocomplete-item .tag-count {
+    float: right;
+    color: var(--color-text-muted, #999);
+    font-size: 0.65rem;
+}
+
+/* Hover trigger: small tag icon appears on card hover */
+.tag-hover-trigger {
+    position: absolute;
+    bottom: 0.3rem;
+    right: 0.3rem;
+    font-size: 0.7rem;
+    opacity: 0;
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+
+.entry-card {
+    position: relative;
+}
+
+.entry-card:hover .tag-hover-trigger {
+    opacity: 0.5;
+}
+
+.tag-hover-trigger:hover {
+    opacity: 1 !important;
+}
+
+/* Timeline tag filter bar */
+.tag-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.3rem 0;
+}
+
+.tag-filter-bar .tag-pill {
+    background: var(--color-primary-light, #e0ecff);
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+}
+
+.tag-filter-bar .tag-pill .tag-remove {
+    opacity: 1;
+}
+
+.tag-filter-clear {
+    font-size: 0.7rem;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    text-decoration: underline;
+    margin-left: 0.3rem;
+}
+
+.tag-filter-clear:hover {
+    color: var(--color-primary);
 }
 
 /* ============================================

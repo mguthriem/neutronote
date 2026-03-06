@@ -549,6 +549,7 @@ print('Hello from neutroNote!')"></textarea>
                 <button type="button" class="btn btn-sm btn-danger" onclick="resetTimeline()" title="DEV: Clear all entries">🗑️ Reset</button>
             </div>
         </div>
+        <div class="tag-filter-bar" id="tag-filter-bar" style="display:none;"></div>
         
         <div class="timeline" id="timeline">
             {% if entries %}
@@ -3636,6 +3637,359 @@ function savePVLogFromViewer() {
     closePVLogViewer();
     savePVLogEntry(xRange);
 }
+
+// =========================================================================
+// Tag System
+// =========================================================================
+
+// Cache of all tags for autocomplete
+let _tagCache = null;
+let _tagCacheTime = 0;
+const TAG_CACHE_MS = 30000;  // 30s
+
+/**
+ * Fetch all tags (with caching).
+ */
+async function fetchTags(prefix) {
+    const now = Date.now();
+    // If we have a cache and no prefix filter, use it
+    if (_tagCache && !prefix && (now - _tagCacheTime) < TAG_CACHE_MS) {
+        return _tagCache;
+    }
+    const url = prefix
+        ? `/entries/api/tags?q=${encodeURIComponent(prefix)}`
+        : '/entries/api/tags';
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (!prefix) {
+        _tagCache = data;
+        _tagCacheTime = now;
+    }
+    return data;
+}
+
+/**
+ * Invalidate the tag cache (after add/remove).
+ */
+function invalidateTagCache() {
+    _tagCache = null;
+}
+
+/**
+ * Show the tag footer on an entry (called by hover trigger).
+ */
+function showTagFooter(entryId) {
+    const footer = document.getElementById('entry-tags-' + entryId);
+    if (footer) {
+        footer.style.display = '';
+        // Immediately show the tag input
+        const addBtn = footer.querySelector('.tag-add-btn');
+        if (addBtn) showTagInput(entryId, addBtn);
+    }
+}
+
+/**
+ * Show an inline tag input next to the "+ Tag" button.
+ */
+function showTagInput(entryId, addBtn) {
+    // Don't create duplicate inputs
+    const footer = document.getElementById('entry-tags-' + entryId);
+    if (footer.querySelector('.tag-input-wrapper')) return;
+
+    addBtn.style.display = 'none';
+
+    const wrapper = document.createElement('span');
+    wrapper.className = 'tag-input-wrapper';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Type tag…';
+    input.setAttribute('autocomplete', 'off');
+    wrapper.appendChild(input);
+
+    // Autocomplete dropdown
+    const dropdown = document.createElement('div');
+    dropdown.className = 'tag-autocomplete';
+    dropdown.style.display = 'none';
+    wrapper.appendChild(dropdown);
+
+    footer.insertBefore(wrapper, addBtn);
+    input.focus();
+
+    let activeIdx = -1;
+
+    // Fetch and render autocomplete suggestions
+    async function updateSuggestions() {
+        const q = input.value.trim();
+        if (q.length === 0) {
+            dropdown.style.display = 'none';
+            return;
+        }
+        const tags = await fetchTags(q);
+        // Filter out tags already on this entry
+        const existing = new Set();
+        footer.querySelectorAll('.tag-pill').forEach(p => {
+            existing.add(p.dataset.tagName.toLowerCase());
+        });
+        const filtered = tags.filter(t => !existing.has(t.name.toLowerCase()));
+
+        if (filtered.length === 0 && q.length > 0) {
+            // Show "create new" option
+            dropdown.innerHTML = `<div class="tag-autocomplete-item" data-name="${escapeAttr(q)}">Create "<strong>${escapeHtml(q)}</strong>"</div>`;
+            dropdown.style.display = '';
+        } else if (filtered.length > 0) {
+            dropdown.innerHTML = filtered.map((t, i) =>
+                `<div class="tag-autocomplete-item" data-name="${escapeAttr(t.name)}">${escapeHtml(t.name)} <span class="tag-count">${t.count}</span></div>`
+            ).join('');
+            dropdown.style.display = '';
+        } else {
+            dropdown.style.display = 'none';
+        }
+        activeIdx = -1;
+    }
+
+    input.addEventListener('input', updateSuggestions);
+
+    // Keyboard navigation
+    input.addEventListener('keydown', function(e) {
+        const items = dropdown.querySelectorAll('.tag-autocomplete-item');
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeIdx = Math.min(activeIdx + 1, items.length - 1);
+            items.forEach((it, i) => it.classList.toggle('active', i === activeIdx));
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeIdx = Math.max(activeIdx - 1, 0);
+            items.forEach((it, i) => it.classList.toggle('active', i === activeIdx));
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (activeIdx >= 0 && items[activeIdx]) {
+                commitTag(entryId, items[activeIdx].dataset.name, footer, wrapper, addBtn);
+            } else if (input.value.trim()) {
+                commitTag(entryId, input.value.trim(), footer, wrapper, addBtn);
+            }
+        } else if (e.key === 'Escape') {
+            closeTagInput(wrapper, addBtn);
+        }
+    });
+
+    // Click on suggestion
+    dropdown.addEventListener('mousedown', function(e) {
+        const item = e.target.closest('.tag-autocomplete-item');
+        if (item) {
+            e.preventDefault();
+            commitTag(entryId, item.dataset.name, footer, wrapper, addBtn);
+        }
+    });
+
+    // Close on blur (with delay so click can register)
+    input.addEventListener('blur', function() {
+        setTimeout(() => {
+            if (document.activeElement !== input) {
+                closeTagInput(wrapper, addBtn);
+            }
+        }, 200);
+    });
+}
+
+/**
+ * Commit a tag: POST to API, add pill to DOM.
+ */
+async function commitTag(entryId, tagName, footer, wrapper, addBtn) {
+    if (!tagName.trim()) return;
+
+    const resp = await fetch(`/entries/api/entries/${entryId}/tags`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: tagName.trim()})
+    });
+    const data = await resp.json();
+    if (data.error) {
+        console.error('Tag error:', data.error);
+        return;
+    }
+
+    invalidateTagCache();
+
+    // Add pill to footer (before the add button)
+    const pill = document.createElement('span');
+    pill.className = 'tag-pill';
+    pill.dataset.tagId = data.id;
+    pill.dataset.tagName = data.name;
+    pill.textContent = data.name;
+    pill.addEventListener('click', () => toggleTagFilter(data.name));
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'tag-remove';
+    removeBtn.title = 'Remove tag';
+    removeBtn.textContent = '×';
+    removeBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        removeTag(entryId, data.id, this);
+    });
+    pill.appendChild(removeBtn);
+
+    footer.insertBefore(pill, addBtn);
+
+    // Store tag name on the entry card for filtering
+    const card = document.querySelector(`.entry-card[data-entry-id="${entryId}"]`);
+    if (card) {
+        let tags = (card.dataset.tags || '').split(',').filter(Boolean);
+        if (!tags.includes(data.name.toLowerCase())) {
+            tags.push(data.name.toLowerCase());
+        }
+        card.dataset.tags = tags.join(',');
+    }
+
+    // Close input and re-show add button
+    closeTagInput(wrapper, addBtn);
+}
+
+/**
+ * Remove a tag from an entry.
+ */
+async function removeTag(entryId, tagId, btn) {
+    const resp = await fetch(`/entries/api/entries/${entryId}/tags/${tagId}`, {
+        method: 'DELETE',
+        headers: {'Content-Type': 'application/json'}
+    });
+    const data = await resp.json();
+    if (data.error) {
+        console.error('Tag remove error:', data.error);
+        return;
+    }
+
+    invalidateTagCache();
+
+    // Remove pill from DOM
+    const pill = btn.closest('.tag-pill');
+    const tagName = pill ? pill.dataset.tagName : '';
+    if (pill) pill.remove();
+
+    // Update data-tags on card
+    if (tagName) {
+        const card = document.querySelector(`.entry-card[data-entry-id="${entryId}"]`);
+        if (card) {
+            let tags = (card.dataset.tags || '').split(',').filter(Boolean);
+            tags = tags.filter(t => t !== tagName.toLowerCase());
+            card.dataset.tags = tags.join(',');
+        }
+    }
+
+    // If no tags left, hide footer
+    const footer = document.getElementById('entry-tags-' + entryId);
+    if (footer && footer.querySelectorAll('.tag-pill').length === 0) {
+        footer.style.display = 'none';
+    }
+
+    // Refresh filter if active
+    applyTagFilter();
+}
+
+/**
+ * Close the inline tag input, restore the "+ Tag" button.
+ */
+function closeTagInput(wrapper, addBtn) {
+    if (wrapper && wrapper.parentNode) wrapper.remove();
+    if (addBtn) addBtn.style.display = '';
+}
+
+/**
+ * Escape text for safe HTML insertion.
+ */
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+/**
+ * Escape text for use in HTML attributes.
+ */
+function escapeAttr(text) {
+    return text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// =========================================================================
+// Timeline Tag Filter
+// =========================================================================
+
+// Set of active tag filters (lowercase names)
+const activeTagFilters = new Set();
+
+/**
+ * Toggle a tag in the timeline filter.
+ */
+function toggleTagFilter(tagName) {
+    const lower = tagName.toLowerCase();
+    if (activeTagFilters.has(lower)) {
+        activeTagFilters.delete(lower);
+    } else {
+        activeTagFilters.add(lower);
+    }
+    renderTagFilterBar();
+    applyTagFilter();
+}
+
+/**
+ * Render the tag filter bar above the timeline.
+ */
+function renderTagFilterBar() {
+    const bar = document.getElementById('tag-filter-bar');
+    if (activeTagFilters.size === 0) {
+        bar.style.display = 'none';
+        bar.innerHTML = '';
+        return;
+    }
+    bar.style.display = '';
+    let html = '<span style="font-size:0.7rem;color:var(--color-text-muted);margin-right:0.2rem;">Filter:</span>';
+    activeTagFilters.forEach(name => {
+        html += `<span class="tag-pill" onclick="toggleTagFilter('${escapeAttr(name)}')">${escapeHtml(name)} <button class="tag-remove" style="opacity:1">×</button></span>`;
+    });
+    html += `<span class="tag-filter-clear" onclick="clearTagFilter()">Clear all</span>`;
+    bar.innerHTML = html;
+}
+
+/**
+ * Apply the active tag filters: show/hide entry cards.
+ */
+function applyTagFilter() {
+    const cards = document.querySelectorAll('.entry-card[data-entry-id]');
+    if (activeTagFilters.size === 0) {
+        cards.forEach(c => c.style.display = '');
+        return;
+    }
+    cards.forEach(card => {
+        const cardTags = (card.dataset.tags || '').split(',').filter(Boolean);
+        // Show if card has ANY of the active filters
+        const match = cardTags.some(t => activeTagFilters.has(t));
+        card.style.display = match ? '' : 'none';
+    });
+}
+
+/**
+ * Clear all tag filters.
+ */
+function clearTagFilter() {
+    activeTagFilters.clear();
+    renderTagFilterBar();
+    applyTagFilter();
+}
+
+// On page load: populate data-tags on each entry card for filtering
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.entry-card[data-entry-id]').forEach(card => {
+        const footer = card.querySelector('.entry-tags');
+        if (!footer) return;
+        const tags = [];
+        footer.querySelectorAll('.tag-pill').forEach(pill => {
+            tags.push(pill.dataset.tagName.toLowerCase());
+            // Attach click handler for filtering
+            pill.addEventListener('click', () => toggleTagFilter(pill.dataset.tagName));
+        });
+        card.dataset.tags = tags.join(',');
+    });
+});
 
 </script>
 {% endblock %}
