@@ -834,6 +834,39 @@ class TestEntryTags:
         tags_resp = client.get("/entries/api/tags")
         assert tags_resp.get_json() == []
 
+    def test_create_pvlog_with_tags(self, app, client):
+        """Creating a PV Log entry via API with tags attaches them."""
+        resp = client.post(
+            "/entries/api/create/pvlog",
+            json={
+                "title": "Tagged PV",
+                "data": {
+                    "traces": [{"name": "PV1", "x": [1, 2], "y": [10, 20]}],
+                    "start": "2025-06-01T00:00:00",
+                    "end": "2025-06-15T00:00:00",
+                },
+                "tags": ["pressure", "temperature"],
+            },
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+
+        # Verify tags were created and attached
+        tags_resp = client.get("/entries/api/tags")
+        names = sorted(t["name"].lower() for t in tags_resp.get_json())
+        assert "pressure" in names
+        assert "temperature" in names
+
+        # Verify tags are actually on the entry
+        with app.app_context():
+            entry = Entry.query.filter_by(type="pvlog").first()
+            assert entry is not None
+            tag_names = [t.name.lower() for t in entry.tags.all()]
+            assert "pressure" in tag_names
+            assert "temperature" in tag_names
+
 
 class TestInstrumentAbstraction:
     """Tests for the instrument plugin system."""
