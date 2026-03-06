@@ -806,3 +806,29 @@ class TestInstrumentAbstraction:
         path = ref_l.notebook_path("IPTS-28400")
         assert path.endswith("IPTS-28400/shared/neutronote")
         assert "/SNS/REF_L/" in path
+
+    # --- Enabled entry types ------------------------------------------------
+
+    def test_snap_enabled_entry_types_default(self):
+        """SNAP should have all six entry types enabled (default)."""
+        snap = get_instrument("SNAP")
+        types = snap.enabled_entry_types()
+        assert types == ["text", "header", "image", "data", "code", "pvlog"]
+
+    def test_ref_l_enabled_entry_types_no_data(self):
+        """REF_L should not include 'data' in enabled entry types."""
+        ref_l = get_instrument("REF_L")
+        types = ref_l.enabled_entry_types()
+        assert "data" not in types
+        assert "text" in types
+        assert "header" in types
+        assert "pvlog" in types
+
+    def test_entry_type_labels_exist(self):
+        """All enabled entry types should have display labels."""
+        for name in available_instruments():
+            inst = get_instrument(name)
+            for etype in inst.enabled_entry_types():
+                assert etype in inst.ENTRY_TYPE_LABELS, (
+                    f"{name}: no label for entry type {etype!r}"
+                )

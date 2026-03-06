@@ -65,17 +65,21 @@
             {% endif %}
         {% endwith %}
         
-        <!-- Entry type tabs -->
+        <!-- Entry type tabs (driven by instrument.enabled_entry_types()) -->
         <div class="entry-type-tabs">
-            <button class="tab active" data-type="text">Text</button>
-            <button class="tab" data-type="header" {% if not config.is_configured %}disabled title="Configure IPTS first"{% endif %}>Header</button>
-            <button class="tab" data-type="image">Image</button>
-            <button class="tab" data-type="data" {% if not config.is_configured %}disabled title="Configure IPTS first"{% endif %}>Data</button>
-            <button class="tab" data-type="code">Code</button>
-            <button class="tab" data-type="pvlog" {% if not config.has_dates %}disabled title="Configure experiment dates first"{% endif %}>PV Log</button>
+            {% set enabled_types = instrument.enabled_entry_types() %}
+            {% for etype in enabled_types %}
+            <button class="tab{% if loop.first %} active{% endif %}"
+                    data-type="{{ etype }}"
+                    {% if etype == 'header' and not config.is_configured %}disabled title="Configure IPTS first"{% endif %}
+                    {% if etype == 'data' and not config.is_configured %}disabled title="Configure IPTS first"{% endif %}
+                    {% if etype == 'pvlog' and not config.has_dates %}disabled title="Configure experiment dates first"{% endif %}
+            >{{ instrument.ENTRY_TYPE_LABELS.get(etype, etype|capitalize) }}</button>
+            {% endfor %}
         </div>
 
         <!-- Text entry form -->
+        {% if 'text' in enabled_types %}
         <form id="text-form" class="entry-form active" action="{{ url_for('entries.create_text') }}" method="post">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
@@ -88,8 +92,10 @@
             </div>
             <button type="submit" class="btn btn-primary">Submit Entry</button>
         </form>
+        {% endif %}
 
         <!-- Run Header entry form -->
+        {% if 'header' in enabled_types %}
         <form id="header-form" class="entry-form" action="{{ url_for('entries.create_header') }}" method="post">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             {% if config.is_configured %}
@@ -103,8 +109,10 @@
             <p class="placeholder-text">Please configure the notebook IPTS first.</p>
             {% endif %}
         </form>
+        {% endif %}
 
         <!-- Image entry form -->
+        {% if 'image' in enabled_types %}
         <div id="image-form" class="entry-form">
             <!-- Source toggle -->
             <div class="form-group">
@@ -154,8 +162,10 @@
                 <button type="button" class="btn btn-primary" onclick="saveServerImage()">Save Image</button>
             </div>
         </div>
+        {% endif %}
 
         <!-- Reduced Data entry form -->
+        {% if 'data' in enabled_types %}
         <form id="data-form" class="entry-form">
             {% if config.is_configured %}
             <div class="form-group">
@@ -194,7 +204,9 @@
             <p class="placeholder-text">Please configure the notebook IPTS first.</p>
             {% endif %}
         </form>
+        {% endif %}
         
+        {% if 'code' in enabled_types %}
         <form id="code-form" class="entry-form" style="display:none;">
             <div class="form-group">
                 <label for="code-editor">Python Code</label>
@@ -230,8 +242,10 @@ print('Hello from neutroNote!')"></textarea>
                 <pre id="code-output" class="code-output"></pre>
             </div>
         </form>
+        {% endif %}
         
         <!-- PV Log entry form -->
+        {% if 'pvlog' in enabled_types %}
         <form id="pvlog-form" class="entry-form" style="display:none;">
             {% if config.has_dates %}
             <div class="pvlog-date-range">
@@ -291,6 +305,7 @@ print('Hello from neutroNote!')"></textarea>
             <p class="placeholder-text">Please configure experiment dates in the notebook settings (⚙️) to enable PV Log queries.</p>
             {% endif %}
         </form>
+        {% endif %}
 
         <!-- Kernel Status Panel (always visible) -->
         <div class="kernel-panel">
