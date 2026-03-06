@@ -69,15 +69,52 @@ def index():
     )
 
 
+def _attach_tags(entry, tag_names):
+    """Attach tags to an entry by name, creating new Tag rows as needed.
+
+    *tag_names* is an iterable of tag-name strings (possibly empty).
+    Must be called after the entry has been added to the session (so it has an id
+    after commit) or before commit – SQLAlchemy handles both.
+    """
+    for name in tag_names:
+        name = name.strip()
+        if not name:
+            continue
+        tag = Tag.query.filter(db.func.lower(Tag.name) == name.lower()).first()
+        if not tag:
+            tag = Tag(name=name)
+            db.session.add(tag)
+        if tag not in entry.tags.all():
+            entry.tags.append(tag)
+
+
+def _parse_form_tags():
+    """Return a list of tag-name strings from the ``tags`` form field."""
+    raw = request.form.get("tags", "").strip()
+    if not raw:
+        return []
+    return [t.strip() for t in raw.split(",") if t.strip()]
+
+
+def _parse_json_tags(data):
+    """Return a list of tag-name strings from a JSON payload's ``tags`` field."""
+    tags = data.get("tags", [])
+    if isinstance(tags, str):
+        return [t.strip() for t in tags.split(",") if t.strip()]
+    return [str(t).strip() for t in tags if str(t).strip()]
+
+
 @bp.route("/create/text", methods=["POST"])
 def create_text():
     """Create a new text entry."""
     body = request.form.get("body", "").strip()
     title = request.form.get("title", "").strip() or None
+    tag_names = _parse_form_tags()
 
     if body:
         entry = Entry(type=Entry.TYPE_TEXT, title=title, body=body)
         db.session.add(entry)
+        _attach_tags(entry, tag_names)
         db.session.commit()
 
     return redirect(url_for("entries.index"))
@@ -194,6 +231,7 @@ def create_header():
     )
 
     db.session.add(entry)
+    _attach_tags(entry, _parse_form_tags())
     db.session.commit()
 
     return redirect(url_for("entries.index"))
@@ -237,6 +275,7 @@ def create_image():
     )
 
     db.session.add(entry)
+    _attach_tags(entry, _parse_form_tags())
     db.session.commit()
 
     return redirect(url_for("entries.index"))
@@ -368,6 +407,7 @@ def api_pick_image():
         body=unique_name,
     )
     db.session.add(entry)
+    _attach_tags(entry, _parse_json_tags(data))
     db.session.commit()
 
     return jsonify(ok=True, entry_id=entry.id)
@@ -579,6 +619,7 @@ def api_create_code():
 
     entry = Entry(type=Entry.TYPE_CODE, title=None, body=body)
     db.session.add(entry)
+    _attach_tags(entry, _parse_json_tags(data))
     db.session.commit()
 
     return jsonify({"success": True, "entry_id": entry.id})
@@ -672,6 +713,7 @@ def api_create_data():
     )
 
     db.session.add(entry)
+    _attach_tags(entry, _parse_json_tags(data))
     db.session.commit()
 
     run_desc = str(run_numbers[0]) if len(run_numbers) == 1 else f"{len(run_numbers)} runs"
@@ -1241,6 +1283,7 @@ def create_pvlog():
         body=json.dumps(plot_data),
     )
     db.session.add(entry)
+    _attach_tags(entry, _parse_json_tags(data))
     db.session.commit()
 
     return jsonify({"success": True, "entry_id": entry.id})

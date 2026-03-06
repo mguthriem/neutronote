@@ -793,6 +793,47 @@ class TestEntryTags:
         assert len(tags) == 1
         assert tags[0]["count"] == 1
 
+    def test_create_text_with_tags(self, client):
+        """Creating a text entry with tags= form field attaches tags."""
+        resp = client.post(
+            "/entries/create/text",
+            data={"body": "Tagged entry", "title": "test", "tags": "alpha,beta"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+
+        # Verify tags were created and attached
+        tags_resp = client.get("/entries/api/tags")
+        names = sorted(t["name"].lower() for t in tags_resp.get_json())
+        assert "alpha" in names
+        assert "beta" in names
+
+    def test_create_code_with_tags(self, client):
+        """Creating a code entry via API with tags attaches them."""
+        resp = client.post(
+            "/entries/api/create/code",
+            json={"code": "print(1)", "output": "1", "error": False, "tags": ["gamma"]},
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+
+        tags_resp = client.get("/entries/api/tags")
+        names = [t["name"].lower() for t in tags_resp.get_json()]
+        assert "gamma" in names
+
+    def test_create_with_empty_tags(self, client):
+        """Creating an entry with empty tags= field works fine."""
+        resp = client.post(
+            "/entries/create/text",
+            data={"body": "No tags", "title": "", "tags": ""},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        tags_resp = client.get("/entries/api/tags")
+        assert tags_resp.get_json() == []
+
 
 class TestInstrumentAbstraction:
     """Tests for the instrument plugin system."""

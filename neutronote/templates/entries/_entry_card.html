@@ -16,6 +16,9 @@
                 <span class="entry-title-inline">{{ entry.title }}</span>
             {% endif %}
         </div>
+        <div class="entry-actions">
+            <button type="button" class="btn-icon" title="Add tag" onclick="showTagFooter({{ entry.id }})">🏷️</button>
+        </div>
     </header>
     {% else %}
     {# Standard header for other entry types #}
@@ -35,6 +38,7 @@
             {% endif %}
         </div>
         <div class="entry-actions">
+            <button type="button" class="btn-icon" title="Add tag" onclick="showTagFooter({{ entry.id }})">🏷️</button>
             <a href="{{ url_for('entries.edit', entry_id=entry.id) }}" class="btn-icon" title="Edit entry">
                 ✏️
             </a>
@@ -85,6 +89,4 @@
             <button type="button" class="tag-add-btn" onclick="showTagInput({{ entry.id }}, this)" title="Add tag">+ Tag</button>
         </footer>
     {% endif %}
-    {# Hover trigger: show "+ Tag" when no tags footer is hidden #}
-    <div class="tag-hover-trigger" onclick="showTagFooter({{ entry.id }})">🏷</div>
 </article>

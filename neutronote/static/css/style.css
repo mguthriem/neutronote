@@ -752,27 +752,93 @@ a:hover {
     font-size: 0.65rem;
 }
 
-/* Hover trigger: small tag icon appears on card hover */
-.tag-hover-trigger {
-    position: absolute;
-    bottom: 0.3rem;
-    right: 0.3rem;
-    font-size: 0.7rem;
-    opacity: 0;
-    cursor: pointer;
-    transition: opacity 0.15s;
+/* Create-time tag input (in the left panel forms) */
+.create-tags-group {
+    margin-top: 0.3rem;
 }
 
-.entry-card {
+.create-tags-input {
     position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.3rem 0.4rem;
+    border: 1px solid var(--color-border, #d0d5dd);
+    border-radius: 6px;
+    background: var(--color-bg, #fff);
+    min-height: 32px;
+    cursor: text;
 }
 
-.entry-card:hover .tag-hover-trigger {
-    opacity: 0.5;
+.create-tags-input:focus-within {
+    border-color: var(--color-primary, #4a90d9);
+    box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.15);
 }
 
-.tag-hover-trigger:hover {
-    opacity: 1 !important;
+.create-tags-pills {
+    display: contents;
+}
+
+.create-tags-pills .tag-pill {
+    margin: 0;
+    font-size: 0.72rem;
+    padding: 0.1rem 0.45rem;
+}
+
+.create-tags-pills .tag-pill .tag-remove {
+    opacity: 0.6;
+    margin-left: 0.2rem;
+}
+
+.create-tags-pills .tag-pill .tag-remove:hover {
+    opacity: 1;
+}
+
+.create-tag-field {
+    flex: 1;
+    min-width: 80px;
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 0.8rem;
+    padding: 0.1rem 0;
+    color: var(--color-text, #1a1a2e);
+}
+
+.create-tag-field::placeholder {
+    color: var(--color-text-muted, #999);
+}
+
+.create-tag-autocomplete {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: var(--color-bg, #fff);
+    border: 1px solid var(--color-border, #d0d5dd);
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    max-height: 150px;
+    overflow-y: auto;
+    display: none;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.create-tag-autocomplete.open {
+    display: block;
+}
+
+.create-tag-autocomplete .tag-autocomplete-item {
+    padding: 0.3rem 0.5rem;
+    cursor: pointer;
+    font-size: 0.75rem;
+}
+
+.create-tag-autocomplete .tag-autocomplete-item:hover,
+.create-tag-autocomplete .tag-autocomplete-item.active {
+    background: var(--color-primary-light, #e0ecff);
 }
 
 /* Timeline tag filter bar */
@@ -780,30 +846,67 @@ a:hover {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.3rem;
-    padding: 0.3rem 0;
+    gap: 0.35rem;
+    padding: 0.4rem 0.5rem;
+    margin-bottom: 0.3rem;
+    background: var(--color-bg-offset, #f5f7fa);
+    border-radius: 6px;
+    border: 1px solid var(--color-border-light, #e0e4ea);
 }
 
-.tag-filter-bar .tag-pill {
+.tag-filter-label {
+    font-size: 0.72rem;
+    color: var(--color-text-muted);
+    margin-right: 0.1rem;
+    white-space: nowrap;
+}
+
+.tag-filter-pill {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.7rem;
+    padding: 0.15rem 0.55rem;
+    border-radius: 9999px;
+    border: 1px solid var(--color-border, #d0d5dd);
+    background: var(--color-bg, #fff);
+    color: var(--color-text-muted, #6b7280);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+}
+
+.tag-filter-pill:hover {
     background: var(--color-primary-light, #e0ecff);
-    border-color: var(--color-primary);
-    color: var(--color-primary);
+    border-color: var(--color-primary, #4a90d9);
+    color: var(--color-primary, #4a90d9);
 }
 
-.tag-filter-bar .tag-pill .tag-remove {
-    opacity: 1;
+.tag-filter-pill.tag-filter-active {
+    background: var(--color-primary, #4a90d9);
+    border-color: var(--color-primary, #4a90d9);
+    color: #fff;
+    font-weight: 600;
+}
+
+.tag-filter-pill.tag-filter-active:hover {
+    background: var(--color-primary-dark, #3a7bc8);
+    border-color: var(--color-primary-dark, #3a7bc8);
+    color: #fff;
 }
 
 .tag-filter-clear {
     font-size: 0.7rem;
     color: var(--color-text-muted);
     cursor: pointer;
-    text-decoration: underline;
     margin-left: 0.3rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 9999px;
+    transition: all 0.15s ease;
 }
 
 .tag-filter-clear:hover {
-    color: var(--color-primary);
+    color: var(--color-danger, #e74c3c);
+    background: rgba(231, 76, 60, 0.08);
 }
 
 /* ============================================
