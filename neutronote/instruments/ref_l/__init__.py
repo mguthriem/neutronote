@@ -95,8 +95,8 @@ class REFLConfig(InstrumentConfig):
     # --- Optional hooks -----------------------------------------------------
 
     def enabled_entry_types(self) -> list[str]:
-        """REF_L does not have a state-based reduced data browser yet."""
-        return ["text", "header", "image", "code", "pvlog"]
+        """REF_L uses flat reduced data (autoreduce) instead of state-based."""
+        return ["text", "header", "image", "data", "code", "pvlog"]
 
     def default_x_label(self) -> str:
         return "Q (Å⁻¹)"

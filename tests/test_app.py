@@ -1060,11 +1060,11 @@ class TestInstrumentAbstraction:
         types = snap.enabled_entry_types()
         assert types == ["text", "header", "image", "data", "code", "pvlog"]
 
-    def test_ref_l_enabled_entry_types_no_data(self):
-        """REF_L should not include 'data' in enabled entry types."""
+    def test_ref_l_enabled_entry_types_includes_data(self):
+        """REF_L should include 'data' (flat reduced data browser)."""
         ref_l = get_instrument("REF_L")
         types = ref_l.enabled_entry_types()
-        assert "data" not in types
+        assert "data" in types
         assert "text" in types
         assert "header" in types
         assert "pvlog" in types
