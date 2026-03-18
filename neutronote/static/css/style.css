@@ -2365,10 +2365,12 @@ pre.code-input {
 .form-row {
     display: flex;
     gap: 0.75rem;
+    flex-wrap: wrap;
 }
 
 .form-group-half {
-    flex: 1;
+    flex: 1 1 0;
+    min-width: 0;
 }
 
 /* ===== PV Log form ===== */
@@ -2389,6 +2391,8 @@ pre.code-input {
 .pvlog-date-range input[type="datetime-local"] {
     font-size: 0.85rem;
     padding: 0.3rem 0.4rem;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .pv-search-container {
