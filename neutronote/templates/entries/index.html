@@ -67,7 +67,7 @@
                     data-type="{{ etype }}"
                     {% if etype == 'header' and not config.is_configured %}disabled title="Configure IPTS first"{% endif %}
                     {% if etype == 'data' and not config.is_configured %}disabled title="Configure IPTS first"{% endif %}
-                    {% if etype == 'pvlog' and not config.has_dates %}disabled title="Configure experiment dates first"{% endif %}
+                    {% if etype == 'pvlog' and not config.is_configured %}disabled title="Configure IPTS first"{% endif %}
             >{{ instrument.ENTRY_TYPE_LABELS.get(etype, etype|capitalize) }}</button>
             {% endfor %}
         </div>
@@ -296,7 +296,6 @@ print('Hello from neutroNote!')"></textarea>
         <!-- PV Log entry form -->
         {% if 'pvlog' in enabled_types %}
         <form id="pvlog-form" class="entry-form" style="display:none;">
-            {% if config.has_dates %}
             <div class="pvlog-date-range">
                 <div class="form-row">
                     <div class="form-group form-group-half">
@@ -360,9 +359,6 @@ print('Hello from neutroNote!')"></textarea>
                 </div>
                 <div id="pvlog-chart"></div>
             </div>
-            {% else %}
-            <p class="placeholder-text">Please configure experiment dates in the notebook settings (⚙️) to enable PV Log queries.</p>
-            {% endif %}
         </form>
         {% endif %}
 
