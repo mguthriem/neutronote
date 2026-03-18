@@ -166,6 +166,23 @@ def create_app(test_config=None, ipts=None, instrument_name=None):
         # Run lightweight migrations for new columns
         _migrate_db(app)
 
+        # Auto-populate NotebookConfig from CLI args so users don't have to
+        # re-enter IPTS in the settings modal.
+        if ipts and not test_config:
+            from .models import NotebookConfig
+
+            config = NotebookConfig.get_config()
+            normalised_ipts = f"IPTS-{ipts}" if not str(ipts).upper().startswith("IPTS-") else str(ipts).upper()
+            if not config.ipts or config.ipts != normalised_ipts:
+                config.ipts = normalised_ipts
+                config.instrument = instrument.name
+                # Set default reduced data path from instrument if not already set
+                if not config.has_reduced_data_path:
+                    root = instrument.reduced_data_root(normalised_ipts)
+                    if root:
+                        config.reduced_data_path = str(root)
+                db.session.commit()
+
     # Expire all objects before each request to ensure fresh data
     # This is important for multi-user scenarios on shared storage
     @app.before_request
@@ -225,6 +242,21 @@ def create_app(test_config=None, ipts=None, instrument_name=None):
     return app
 
 
+def _find_free_port(start=6100, end=6999):
+    """Find a free TCP port in the given range."""
+    import socket
+
+    for p in range(start, end + 1):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.bind(("0.0.0.0", p))
+                return p
+            except OSError:
+                continue
+    return None
+
+
 def main():
     """CLI entry-point for `neutronote` command."""
     import argparse
@@ -244,6 +276,12 @@ def main():
         default=None,
         help="Port to run server on (default: auto-allocate in 6100-6999)",
     )
+    parser.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        help="User-friendly mode: clean banner, suppress Flask/Werkzeug noise",
+    )
     args = parser.parse_args()
 
     ipts = args.ipts or os.environ.get("NEUTRONOTE_IPTS")
@@ -252,21 +290,6 @@ def main():
     )
 
     # Auto-select a free port in the 6100-6999 range when none specified.
-    # NOTE: port 6000 is blocked by Chrome/Firefox as "unsafe", so we start at 6100.
-    def _find_free_port(start=6100, end=6999):
-        import socket
-
-        for p in range(start, end + 1):
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                try:
-                    s.bind(("127.0.0.1", p))
-                    return p
-                except OSError:
-                    continue
-        return None
-
-    # If port not provided, pick one automatically from the 6100 range
     port = args.port
     if port is None:
         port = _find_free_port()
@@ -278,22 +301,76 @@ def main():
     try:
         import subprocess
 
-        # Use fuser to kill existing process bound to the port; ignore errors
-        subprocess.run(["fuser", "-k", f"{port}/tcp"], check=False)
+        subprocess.run(["fuser", "-k", f"{port}/tcp"], check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception:
-        # Non-fatal if fuser not available or kill fails
         pass
 
-    if ipts:
-        print(f"📓 neutroNote starting for IPTS-{ipts} ({instrument_name})")
-        inst = get_instrument(instrument_name)
-        print(f"   Storage: {get_ipts_notebook_path(ipts, instrument=inst)}")
-    else:
-        print(f"📓 neutroNote starting in development mode ({instrument_name})")
+    # Build the URL with the real hostname so it works from other machines
+    import socket
 
-    app = create_app(ipts=ipts, instrument_name=instrument_name)
-    print(f" * Running on http://127.0.0.1:{port}")
-    app.run(debug=True, port=port)
+    hostname = socket.getfqdn()
+    url = f"http://{hostname}:{port}"
+
+    if args.quiet:
+        # ---- User-friendly mode: clean output, suppress Werkzeug logs ----
+        import logging
+        import sys
+
+        # Suppress Werkzeug request logs
+        logging.getLogger("werkzeug").setLevel(logging.ERROR)
+
+        # Suppress Flask/Werkzeug startup banner ("Serving Flask app", "Debug mode")
+        # by temporarily silencing stderr during app.run() init, then restoring it.
+        class _QuietStderr:
+            """Swallows write() calls that contain Flask/Werkzeug banner text."""
+            def __init__(self, real):
+                self._real = real
+                self._suppress = {" * Serving", " * Debug mode", " * Running on",
+                                  "WARNING: This is a development server",
+                                  "Press CTRL+C", "Use a production"}
+            def write(self, s):
+                if any(tok in s for tok in self._suppress):
+                    return
+                self._real.write(s)
+            def flush(self):
+                self._real.flush()
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+        print()
+        if ipts:
+            inst = get_instrument(instrument_name)
+            storage = get_ipts_notebook_path(ipts, instrument=inst)
+            print(f"  📓 neutroNote starting for IPTS-{ipts} ({instrument_name})")
+            print(f"     Storage: {storage}")
+        else:
+            print(f"  📓 neutroNote starting in development mode ({instrument_name})")
+        print()
+        print(f"  To open neutroNote, open this link in a browser:")
+        print(f"  👉 {url}")
+        print()
+        print(f"  Press Ctrl+C to stop the server.")
+        print()
+
+        app = create_app(ipts=ipts, instrument_name=instrument_name)
+        sys.stderr = _QuietStderr(sys.stderr)
+        sys.stdout = _QuietStderr(sys.stdout)
+        # Bind to 0.0.0.0 so other machines on the network can connect
+        app.run(host="0.0.0.0", port=port, debug=False)
+    else:
+        # ---- Developer mode: full Flask debug output ----
+        if ipts:
+            print(f"📓 neutroNote starting for IPTS-{ipts} ({instrument_name})")
+            inst = get_instrument(instrument_name)
+            print(f"   Storage: {get_ipts_notebook_path(ipts, instrument=inst)}")
+        else:
+            print(f"📓 neutroNote starting in development mode ({instrument_name})")
+
+        app = create_app(ipts=ipts, instrument_name=instrument_name)
+        print(f" * Running on {url}")
+        # Bind to 0.0.0.0 so other machines on the network can connect
+        app.run(host="0.0.0.0", debug=True, port=port)
 
 
 if __name__ == "__main__":

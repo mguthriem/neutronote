@@ -12,18 +12,17 @@
             <button type="button" class="btn-close" onclick="document.getElementById('setup-overlay').style.display='none'; if(typeof refreshKernelStatus==='function') setTimeout(refreshKernelStatus,300);">×</button>
             {% endif %}
         </div>
-        <p>Enter the IPTS number for this experiment notebook. This will be used for all run header lookups.</p>
+        {% if config.is_configured %}
+        <p>Notebook settings for <strong>{{ config.ipts }}</strong>.</p>
+        {% else %}
+        <p>IPTS will be set automatically from the command line. Start the server with an IPTS number.</p>
+        {% endif %}
         
         <form action="{{ url_for('entries.setup_notebook') }}" method="post">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
-                <label for="setup-ipts">IPTS Number <span class="required">*</span></label>
-                <input type="text" id="setup-ipts" name="ipts" placeholder="e.g., IPTS-12345 or 12345" value="{{ config.ipts or '' }}" required {% if not config.is_configured %}autofocus{% endif %}>
-                <small class="form-hint">Enter with or without "IPTS-" prefix.</small>
-            </div>
-            <div class="form-group">
                 <label for="setup-title">Notebook Title (optional)</label>
-                <input type="text" id="setup-title" name="notebook_title" placeholder="e.g., Diamond Anvil Calibration" value="{{ config.title or '' }}">
+                <input type="text" id="setup-title" name="notebook_title" placeholder="e.g., Diamond Anvil Calibration" value="{{ config.title or '' }}" {% if config.is_configured and not config.title %}autofocus{% endif %}>
             </div>
             <div class="form-row">
                 <div class="form-group form-group-half">
@@ -36,12 +35,7 @@
                 </div>
             </div>
             <small class="form-hint" style="margin-top: -0.5em; display: block;">Dates are used as the default time range for PV Log queries. Leave blank to skip.</small>
-            <div class="form-group">
-                <label for="setup-reduced-path">Reduced Data Path (optional)</label>
-                <input type="text" id="setup-reduced-path" name="reduced_data_path" placeholder="{% if default_reduced_path %}{{ default_reduced_path }}{% else %}e.g., /SNS/{{ instrument_name }}/{{ config.ipts or 'IPTS-12345' }}/shared/autoreduce{% endif %}" value="{{ config.reduced_data_path or '' }}">
-                <small class="form-hint">Override the default reduced data location. Leave blank to use {% if default_reduced_path %}{{ default_reduced_path }}{% else %}instrument default{% endif %}.</small>
-            </div>
-            <button type="submit" class="btn btn-primary btn-large">{% if config.is_configured %}Update{% else %}Start Notebook{% endif %}</button>
+            <button type="submit" class="btn btn-primary btn-large">{% if config.is_configured %}Update{% else %}Save{% endif %}</button>
         </form>
     </div>
 </div>
@@ -615,7 +609,7 @@ print('Hello from neutroNote!')"></textarea>
             {% if config.title %}
             <span class="notebook-title">{{ config.title }}</span>
             {% endif %}
-            <button type="button" class="btn-settings" onclick="document.getElementById('setup-overlay').style.display='flex'" title="Change IPTS">⚙️</button>
+            <button type="button" class="btn-settings" onclick="document.getElementById('setup-overlay').style.display='flex'" title="Notebook settings">⚙️</button>
         </div>
         {% endif %}
         

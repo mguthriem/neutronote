@@ -86,10 +86,10 @@ fmt = "black neutronote tests"
 # Run with IPTS: pixi run ipts 33219
 ipts = "python -m neutronote.app --ipts"
 
-# Multi-user: each user should pick a unique port (6000-6999)
-# Usage: pixi run serve <IPTS> <PORT>
-# Example: pixi run serve 33219 6001
-serve = "python -m neutronote.app --ipts"
+# User-friendly server (clean banner, no Flask noise)
+# Usage: pixi run serve <IPTS>
+# Example: pixi run serve --ipts 33219
+serve = "python -m neutronote.app --quiet --ipts"
 
 # ---------- Tool configs ----------
 [tool.ruff]

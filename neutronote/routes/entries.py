@@ -47,25 +47,11 @@ def index():
     config = NotebookConfig.get_config()
     entries = Entry.query.order_by(Entry.created_at.asc()).all()
 
-    # Build default reduced data path hint (for UI)
-    default_reduced_path = None
-    if config.ipts:
-        # Check if env var is set
-        env_path = os.environ.get("NEUTRONOTE_REDUCED_DATA_PATH")
-        if env_path:
-            default_reduced_path = env_path.replace("{ipts}", config.ipts)
-        else:
-            # Use instrument default
-            root = instrument.reduced_data_root(config.ipts)
-            if root:
-                default_reduced_path = str(root)
-
     return render_template(
         "entries/index.html",
         entries=entries,
         config=config,
         aliases=pv_aliases,
-        default_reduced_path=default_reduced_path,
     )
 
 
@@ -122,42 +108,15 @@ def create_text():
 
 @bp.route("/setup", methods=["POST"])
 def setup_notebook():
-    """Set or update the notebook IPTS configuration."""
-    ipts_str = request.form.get("ipts", "").strip()
+    """Update notebook settings (title, experiment dates).
+
+    IPTS and reduced data path are set automatically from the CLI args
+    and instrument config in create_app(), so the user only needs to
+    provide optional metadata here.
+    """
     notebook_title = request.form.get("notebook_title", "").strip() or None
     experiment_start_str = request.form.get("experiment_start", "").strip()
     experiment_end_str = request.form.get("experiment_end", "").strip()
-    reduced_data_path = request.form.get("reduced_data_path", "").strip() or None
-
-    if not ipts_str:
-        flash("Please enter an IPTS number.", "error")
-        return redirect(url_for("entries.index"))
-
-    # Normalize IPTS input (accept "IPTS-12345" or just "12345")
-    ipts_str = ipts_str.upper().replace("IPTS-", "").strip()
-    if not ipts_str.isdigit():
-        flash(f"Invalid IPTS format. Use 'IPTS-12345' or '12345'.", "error")
-        return redirect(url_for("entries.index"))
-
-    ipts = f"IPTS-{ipts_str}"
-
-    # Verify the IPTS folder exists
-    from pathlib import Path
-
-    instrument = current_app.config["INSTRUMENT"]
-    ipts_path = instrument.ipts_path(ipts)
-    if not ipts_path.exists():
-        flash(f"IPTS folder not found: {ipts_path}", "error")
-        return redirect(url_for("entries.index"))
-
-    # Validate reduced data path if provided
-    if reduced_data_path:
-        reduced_path = Path(reduced_data_path)
-        if not reduced_path.exists():
-            flash(f"Reduced data path not found: {reduced_data_path}", "warning")
-        elif not reduced_path.is_dir():
-            flash(f"Reduced data path is not a directory: {reduced_data_path}", "error")
-            return redirect(url_for("entries.index"))
 
     # Parse optional experiment dates
     from datetime import datetime, timezone
@@ -182,15 +141,13 @@ def setup_notebook():
 
     # Update the notebook config
     config = NotebookConfig.get_config()
-    config.ipts = ipts
     config.title = notebook_title
     config.experiment_start = experiment_start
     config.experiment_end = experiment_end
-    config.reduced_data_path = reduced_data_path
     config.updated_at = datetime.now(timezone.utc)
     db.session.commit()
 
-    flash(f"Notebook configured for {ipts}", "success")
+    flash("Notebook settings updated.", "success")
     return redirect(url_for("entries.index"))
 
 
