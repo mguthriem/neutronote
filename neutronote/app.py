@@ -306,11 +306,8 @@ def main():
     except Exception:
         pass
 
-    # Build the URL with the real hostname so it works from other machines
-    import socket
-
-    hostname = socket.getfqdn()
-    url = f"http://{hostname}:{port}"
+    # Build the URL for the local machine
+    url = f"http://localhost:{port}"
 
     if args.quiet:
         # ---- User-friendly mode: clean output, suppress Werkzeug logs ----
@@ -356,8 +353,8 @@ def main():
         app = create_app(ipts=ipts, instrument_name=instrument_name)
         sys.stderr = _QuietStderr(sys.stderr)
         sys.stdout = _QuietStderr(sys.stdout)
-        # Bind to 0.0.0.0 so other machines on the network can connect
-        app.run(host="0.0.0.0", port=port, debug=False)
+        # Bind to localhost only (users access from the same machine)
+        app.run(host="127.0.0.1", port=port, debug=False)
     else:
         # ---- Developer mode: full Flask debug output ----
         if ipts:
@@ -369,8 +366,8 @@ def main():
 
         app = create_app(ipts=ipts, instrument_name=instrument_name)
         print(f" * Running on {url}")
-        # Bind to 0.0.0.0 so other machines on the network can connect
-        app.run(host="0.0.0.0", debug=True, port=port)
+        # Bind to localhost only (users access from the same machine)
+        app.run(host="127.0.0.1", debug=True, port=port)
 
 
 if __name__ == "__main__":
