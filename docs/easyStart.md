@@ -1,6 +1,6 @@
 # neutronNote: Beta Testers Wanted!
 
-neutronNote is an electronic lab notebook app that runs in a browser and able to directly access the data inside your proposal. It supports multiple users and has a rich selection of tools to create a real-time narrative of your experiment. The notebook lives in your ipts folder and is protected by the same permissions as your neutron data.
+neutronNote is an electronic lab notebook app that runs in a browser and is able to directly access the data inside your proposal. It supports multiple users and has a rich selection of tools to create a real-time narrative of your experiment. The notebook lives in your ipts folder and is protected by the same permissions as your neutron data.
 
 NOTE: neutronNote is still in the development phase, so some bugs may be present and some features may be limited. 
 

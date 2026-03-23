@@ -306,8 +306,10 @@ def main():
     except Exception:
         pass
 
-    # Build the URL for the local machine
-    url = f"http://localhost:{port}"
+    # Build the URL for the local machine.
+    # Use 127.0.0.1 (not "localhost") because on some systems localhost
+    # resolves to ::1 (IPv6) first and the browser fails to connect.
+    url = f"http://127.0.0.1:{port}"
 
     if args.quiet:
         # ---- User-friendly mode: clean output, suppress Werkzeug logs ----
