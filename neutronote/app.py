@@ -346,17 +346,72 @@ def main():
         else:
             print(f"  📓 neutroNote starting in development mode ({instrument_name})")
         print()
-        print(f"  To open neutroNote, open this link in a browser:")
-        print(f"  👉 {url}")
+        print(f"  Starting server — please wait...")
         print()
         print(f"  Press Ctrl+C to stop the server.")
         print()
 
+        # Create the Flask app
         app = create_app(ipts=ipts, instrument_name=instrument_name)
+
+        # Quiet the noisy startup banner and werkzeug logs
         sys.stderr = _QuietStderr(sys.stderr)
         sys.stdout = _QuietStderr(sys.stdout)
-        # Bind to localhost only (users access from the same machine)
-        app.run(host="127.0.0.1", port=port, debug=False)
+
+        # Start the server in a background thread so we can poll it and only
+        # print the clickable URL once it's actually accepting connections.
+        import threading
+        import time
+        import socket as _sock
+
+        def _run_server():
+            # use_reloader=False to avoid double-start in threaded mode
+            app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
+
+        thread = threading.Thread(target=_run_server, daemon=True)
+        thread.start()
+
+        # Poll the local port until it accepts a TCP connection (or timeout).
+        # Using a raw socket connect avoids HTTP overhead and log noise.
+        start = time.time()
+        timeout = 30.0
+        url_ok = False
+        while time.time() - start < timeout:
+            try:
+                s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+                s.settimeout(1)
+                s.connect(("127.0.0.1", port))
+                s.close()
+                url_ok = True
+                break
+            except OSError:
+                time.sleep(0.3)
+
+        # Restore normal stdout/stderr behavior for the rest of the CLI output
+        try:
+            sys.stderr = sys.stderr._real
+            sys.stdout = sys.stdout._real
+        except Exception:
+            # If something unexpected happened, ignore and continue
+            pass
+
+        if url_ok:
+            print()
+            print(f"  To open neutroNote, open this link in a browser:")
+            print(f"  👉 {url}")
+            print()
+        else:
+            print()
+            print("  Server still starting — you may see a brief 'Unable to connect' when opening the URL. Retrying usually helps.")
+            print(f"  Try: {url}")
+            print()
+
+        # Keep the main thread alive so the daemon server thread keeps running.
+        # Ctrl+C will raise KeyboardInterrupt and exit cleanly.
+        try:
+            thread.join()
+        except KeyboardInterrupt:
+            print("\n  Server stopped.")
     else:
         # ---- Developer mode: full Flask debug output ----
         if ipts:
