@@ -1916,17 +1916,21 @@ function renderMultiRunPlot(data, selectedSpectra) {
         layout.yaxis.range = initialYRange;
     }
     
-    // Helper function to filter aligned x/y pairs
-    function filterValidPairs(xArr, yArr) {
+    // Helper function to filter aligned x/y/errors triples, removing null/NaN y-values
+    function filterValidPairs(xArr, yArr, errArr) {
         const validX = [];
         const validY = [];
+        const validE = errArr ? [] : null;
         for (let j = 0; j < yArr.length; j++) {
             if (yArr[j] !== null && !isNaN(yArr[j])) {
                 validX.push(xArr[j]);
                 validY.push(yArr[j]);
+                if (validE && j < errArr.length) {
+                    validE.push(errArr[j]);
+                }
             }
         }
-        return { x: validX, y: validY };
+        return { x: validX, y: validY, errors: validE };
     }
     
     data.runs.forEach((runData, idx) => {
@@ -1945,23 +1949,10 @@ function renderMultiRunPlot(data, selectedSpectra) {
                     x: filtered.x,
                     y: filtered.y,
                     type: 'scatter',
-                    mode: runData.type === 'single' ? 'lines+markers' : 'lines',
+                    mode: 'lines',
                     name: `Run ${runData.run_number}`,
                     line: { width: 1.5, color: color },
-                    marker: runData.type === 'single' ? { size: 3 } : undefined,
                 };
-                
-                // Add error bars if present (for single/text files)
-                if (runData.errors && runData.errors.length === runData.y.length) {
-                    trace.error_y = {
-                        type: 'data',
-                        array: runData.errors,
-                        visible: true,
-                        color: color,
-                        thickness: 0.5,
-                        width: 0,
-                    };
-                }
                 
                 traces.push(trace);
             }
