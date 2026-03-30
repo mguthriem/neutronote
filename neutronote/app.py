@@ -3,15 +3,17 @@ neutroNote – Flask application factory.
 """
 
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from flask import Flask
 
 from .instruments import get_instrument, available_instruments, InstrumentConfig
 
-# Load .env file (if present) so os.environ.get() picks up secrets.
-# In production, set real environment variables instead.
-load_dotenv()
+# Load .env file from the project root (parent of this package directory)
+# so credentials are found regardless of the user's working directory.
+_project_root = Path(__file__).resolve().parent.parent
+load_dotenv(_project_root / ".env")
 
 # Allowed image extensions
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp", "svg"}

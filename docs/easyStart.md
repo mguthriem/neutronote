@@ -58,6 +58,12 @@ It's important to keep track of your RAM usage and a small informational widget 
 
 ### Data Entries
 
-The data entry type allows you to embed already reduced data into your `neutroNote`. Clicking on this entry will allow you to select from different instrument configurations from which data have been reduced. Each configuration is labelled with a 16 character hash (e.g.) 0f78eb... or   81e22e, once the correct configuration is selected you can browse the reduced data for that configuration, where you can see available runs, titles, duration and start times. It is possible to filter this list on run duration (e.g. to ignore short alignment or diagnostic runs), run title, or to enter a specific run number
+The data entry type allows you to embed already reduced data into your `neutroNote`. Clicking on this entry will allow you to select from different instrument configurations from which data have been reduced. Each configuration is labelled with a 16 character hash (e.g.) 0f78eb... or   81e22e, once the correct configuration is selected you can click on `Browse Reduced Runs` to browse the reduced data for that configuration, where you can see available runs, titles, duration and start times. It is possible to filter this list on run duration (e.g. to ignore short alignment or diagnostic runs), run title, or to enter a specific run number
 
-From the run browser, multiple runs can be selected and by checking the boxes to the left of the run numbers. These can then be viewed. 
+From the run browser, multiple runs can be selected and by checking the boxes to the left of the run numbers. These can then be viewed in a single plot. The usual interactions are available (pan, zoom  reset etc.). Note that you can select different pixel groupings using the `Grouping` dropdown in the data view. If a group contains multiple spectra, these can be turned off and on as needed.
+
+Once you're happy with the data view, clicking `Add to timeline` will save a screenshot of the data to the timeline. From the timeline, clicking `Expand` will open another interactive view on the data. 
+
+### PV Log Entries
+
+The pv log data entry allows plotting of various process variables ("pvs") that track useful things such as hydraulic pressure or sample temperature.  There are 100s of these, so a set of typically useful ones is provided. The first input is a date range, which is taken from the ipts dates, but can be edited. Then you select a pv type. If, for example `pressure` is selected a range of commonly used pressure pvs is searched for real values and, if these are found, that value is plotted as a time series across the date range. (note: sometimes it can take a while to download the pv data.)
