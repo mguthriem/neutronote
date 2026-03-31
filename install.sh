@@ -53,8 +53,13 @@ neutronote() {
 BLOCK
 
 # ── Source it so it's available right now ──
+# Temporarily disable nounset (-u) because the system /etc/bashrc
+# on some analysis nodes uses variables without checking if they are
+# set (e.g. BASHRCSOURCED), which crashes under `set -u`.
 # shellcheck disable=SC1090
-source "$RC"
+set +u
+source "$RC" 2>/dev/null || true
+set -u
 
 echo ""
 echo "✅ Done!  The 'neutronote' command is now available."
