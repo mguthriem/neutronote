@@ -163,7 +163,9 @@ class KernelManager:
 import sys
 import json
 import io
+import math
 import traceback
+from contextlib import contextmanager
 
 # Try to import mantid - it's optional but desired
 try:
@@ -173,6 +175,65 @@ try:
 except ImportError:
     MANTID_AVAILABLE = False
     ADS = None
+
+# --- Helpers for safe IPC over the stdin/stdout pipe ---
+
+# File descriptor for the *real* stdout so we can always write JSON
+# responses even when sys.stdout is temporarily redirected.
+_real_stdout = sys.stdout
+
+@contextmanager
+def _suppress_stdout():
+    """Redirect sys.stdout and sys.stderr to a black-hole while
+    calling mantid functions that may emit log messages.  This
+    prevents stray text from corrupting the JSON pipe."""
+    sink = io.StringIO()
+    old_out, old_err = sys.stdout, sys.stderr
+    sys.stdout = sink
+    sys.stderr = sink
+    try:
+        yield
+    finally:
+        sys.stdout = old_out
+        sys.stderr = old_err
+
+def _safe_float(v):
+    """Convert NaN / Inf to None so json.dumps produces valid JSON."""
+    if isinstance(v, float) and not math.isfinite(v):
+        return None
+    return v
+
+def _sanitise(obj):
+    """Recursively walk a dict/list and replace non-finite floats
+    with None so that the JSON is valid for browser JSON.parse.
+    Also convert numpy scalar types to native Python types."""
+    if isinstance(obj, dict):
+        return {k: _sanitise(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitise(v) for v in obj]
+    if isinstance(obj, float):
+        return _safe_float(obj)
+    # Handle numpy scalar types that json.dumps can't serialise
+    try:
+        import numpy as _np
+        if isinstance(obj, (_np.integer,)):
+            return int(obj)
+        if isinstance(obj, (_np.floating,)):
+            v = float(obj)
+            return v if math.isfinite(v) else None
+        if isinstance(obj, (_np.bool_,)):
+            return bool(obj)
+        if isinstance(obj, _np.ndarray):
+            return _sanitise(obj.tolist())
+    except ImportError:
+        pass
+    return obj
+
+def _respond(obj):
+    """Serialise *obj* as a single JSON line on the real stdout.
+    Non-finite floats are replaced with null."""
+    _real_stdout.write(json.dumps(_sanitise(obj)) + '\\n')
+    _real_stdout.flush()
 
 # Global namespace for user code
 _user_namespace = {'__name__': '__main__'}
@@ -383,7 +444,6 @@ def extract_spectrum_data(ws_name, spectra, max_points=5000):
             # Filter NaN/Inf
             clean_x, clean_y, clean_e = [], [], []
             for xi, yi, ei in zip(x, y, e):
-                import math
                 if math.isfinite(yi):
                     clean_x.append(xi)
                     clean_y.append(yi)
@@ -598,6 +658,11 @@ def save_workspace_nexus(ws_name, filepath):
         return {'success': False, 'error': str(e)}
 
 # Main loop - read JSON commands from stdin, write JSON responses to stdout
+# ALL responses go through _respond() which:
+#   1. Writes to the *real* stdout (not the redirected one)
+#   2. Sanitises NaN/Inf to null for valid JSON
+# ALL mantid-touching operations are wrapped in _suppress_stdout()
+# to prevent stray log messages from corrupting the JSON pipe.
 while True:
     try:
         line = sys.stdin.readline()
@@ -610,93 +675,106 @@ while True:
         if action == 'execute':
             code = cmd.get('code', '')
             result = execute_code(code)
-            print(json.dumps({'type': 'result', **result}), flush=True)
+            _respond({'type': 'result', **result})
         
         elif action == 'workspaces':
-            workspaces = get_workspace_info()
-            print(json.dumps({'type': 'workspaces', 'workspaces': workspaces}), flush=True)
+            with _suppress_stdout():
+                workspaces = get_workspace_info()
+            _respond({'type': 'workspaces', 'workspaces': workspaces})
         
         elif action == 'variables':
             variables = get_namespace_vars()
-            print(json.dumps({'type': 'variables', 'variables': variables}), flush=True)
+            _respond({'type': 'variables', 'variables': variables})
         
         elif action == 'memory':
-            memory_mb = get_mantid_memory_mb()
-            print(json.dumps({'type': 'memory', 'mantid_mb': memory_mb}), flush=True)
+            with _suppress_stdout():
+                memory_mb = get_mantid_memory_mb()
+            _respond({'type': 'memory', 'mantid_mb': memory_mb})
         
         elif action == 'delete_workspace':
             ws_name = cmd.get('name', '')
             if MANTID_AVAILABLE and ADS is not None and ws_name:
                 try:
-                    if ADS.doesExist(ws_name):
-                        ADS.remove(ws_name)
-                        print(json.dumps({'type': 'deleted', 'name': ws_name, 'success': True}), flush=True)
+                    with _suppress_stdout():
+                        exists = ADS.doesExist(ws_name)
+                        if exists:
+                            ADS.remove(ws_name)
+                    if exists:
+                        _respond({'type': 'deleted', 'name': ws_name, 'success': True})
                     else:
-                        print(json.dumps({'type': 'deleted', 'name': ws_name, 'success': False, 'error': 'Workspace not found'}), flush=True)
+                        _respond({'type': 'deleted', 'name': ws_name, 'success': False, 'error': 'Workspace not found'})
                 except Exception as e:
-                    print(json.dumps({'type': 'deleted', 'name': ws_name, 'success': False, 'error': str(e)}), flush=True)
+                    _respond({'type': 'deleted', 'name': ws_name, 'success': False, 'error': str(e)})
             else:
-                print(json.dumps({'type': 'deleted', 'name': ws_name, 'success': False, 'error': 'Mantid not available or no name provided'}), flush=True)
+                _respond({'type': 'deleted', 'name': ws_name, 'success': False, 'error': 'Mantid not available or no name provided'})
         
         elif action == 'rename_workspace':
-            result = rename_workspace(cmd.get('old_name', ''), cmd.get('new_name', ''))
-            print(json.dumps({'type': 'renamed', **result}), flush=True)
+            with _suppress_stdout():
+                result = rename_workspace(cmd.get('old_name', ''), cmd.get('new_name', ''))
+            _respond({'type': 'renamed', **result})
         
         elif action == 'workspace_history':
-            result = get_algorithm_history(cmd.get('name', ''))
-            print(json.dumps({'type': 'history', **result}), flush=True)
+            with _suppress_stdout():
+                result = get_algorithm_history(cmd.get('name', ''))
+            _respond({'type': 'history', **result})
         
         elif action == 'plot_spectrum':
-            result = extract_spectrum_data(
-                cmd.get('name', ''),
-                cmd.get('spectra', [0]),
-                cmd.get('max_points', 5000),
-            )
-            print(json.dumps({'type': 'plot_spectrum', **result}), flush=True)
+            with _suppress_stdout():
+                result = extract_spectrum_data(
+                    cmd.get('name', ''),
+                    cmd.get('spectra', [0]),
+                    cmd.get('max_points', 5000),
+                )
+            _respond({'type': 'plot_spectrum', **result})
         
         elif action == 'plot_colorfill':
-            result = extract_colorfill_data(
-                cmd.get('name', ''),
-                cmd.get('max_spectra', 500),
-                cmd.get('max_bins', 2000),
-            )
-            print(json.dumps({'type': 'plot_colorfill', **result}), flush=True)
+            with _suppress_stdout():
+                result = extract_colorfill_data(
+                    cmd.get('name', ''),
+                    cmd.get('max_spectra', 500),
+                    cmd.get('max_bins', 2000),
+                )
+            _respond({'type': 'plot_colorfill', **result})
         
         elif action == 'show_data':
-            result = extract_table_data(
-                cmd.get('name', ''),
-                cmd.get('start_spec', 0),
-                cmd.get('num_spec', 20),
-                cmd.get('max_bins', 500),
-            )
-            print(json.dumps({'type': 'show_data', **result}), flush=True)
+            with _suppress_stdout():
+                result = extract_table_data(
+                    cmd.get('name', ''),
+                    cmd.get('start_spec', 0),
+                    cmd.get('num_spec', 20),
+                    cmd.get('max_bins', 500),
+                )
+            _respond({'type': 'show_data', **result})
         
         elif action == 'show_logs':
-            result = extract_sample_logs(cmd.get('name', ''))
-            print(json.dumps({'type': 'show_logs', **result}), flush=True)
+            with _suppress_stdout():
+                result = extract_sample_logs(cmd.get('name', ''))
+            _respond({'type': 'show_logs', **result})
         
         elif action == 'log_series':
-            result = extract_log_series(cmd.get('name', ''), cmd.get('log_name', ''))
-            print(json.dumps({'type': 'log_series', **result}), flush=True)
+            with _suppress_stdout():
+                result = extract_log_series(cmd.get('name', ''), cmd.get('log_name', ''))
+            _respond({'type': 'log_series', **result})
         
         elif action == 'save_workspace':
-            result = save_workspace_nexus(cmd.get('name', ''), cmd.get('filepath', ''))
-            print(json.dumps({'type': 'saved', **result}), flush=True)
+            with _suppress_stdout():
+                result = save_workspace_nexus(cmd.get('name', ''), cmd.get('filepath', ''))
+            _respond({'type': 'saved', **result})
         
         elif action == 'ping':
-            print(json.dumps({'type': 'pong'}), flush=True)
+            _respond({'type': 'pong'})
         
         elif action == 'shutdown':
-            print(json.dumps({'type': 'shutdown', 'success': True}), flush=True)
+            _respond({'type': 'shutdown', 'success': True})
             break
         
         else:
-            print(json.dumps({'type': 'error', 'error': f'Unknown action: {action}'}), flush=True)
+            _respond({'type': 'error', 'error': f'Unknown action: {action}'})
     
     except json.JSONDecodeError as e:
-        print(json.dumps({'type': 'error', 'error': f'Invalid JSON: {e}'}), flush=True)
+        _respond({'type': 'error', 'error': f'Invalid JSON: {e}'})
     except Exception as e:
-        print(json.dumps({'type': 'error', 'error': str(e)}), flush=True)
+        _respond({'type': 'error', 'error': str(e)})
 '''
 
     def stop(self) -> bool:
@@ -733,7 +811,13 @@ while True:
         return self._process.poll() is None
 
     def _send_command(self, cmd: dict, timeout: float = 60.0) -> Optional[dict]:
-        """Send a command to the kernel and get response."""
+        """Send a command to the kernel and get response.
+
+        Reads lines from the kernel's stdout until a valid JSON line
+        is found.  Any non-JSON lines (e.g. mantid startup banners or
+        stray log messages that slipped past the redirect) are
+        silently skipped.
+        """
         if not self.is_alive():
             return None
 
@@ -742,12 +826,25 @@ while True:
             self._process.stdin.write(json.dumps(cmd) + "\n")
             self._process.stdin.flush()
 
-            # Read response with timeout
-            # Note: This is simplified - a production version would use
-            # select() or async I/O for proper timeout handling
-            response_line = self._process.stdout.readline()
-            if response_line:
-                return json.loads(response_line.strip())
+            # Read lines until we get a valid JSON response.
+            # We set a generous upper limit to avoid infinite loops if
+            # the kernel dies or floods garbage.
+            max_lines = 200
+            for _ in range(max_lines):
+                response_line = self._process.stdout.readline()
+                if not response_line:
+                    # EOF — kernel probably died
+                    return None
+                stripped = response_line.strip()
+                if not stripped:
+                    continue
+                # Fast check: valid JSON responses always start with '{'
+                if not stripped.startswith("{"):
+                    continue
+                try:
+                    return json.loads(stripped)
+                except json.JSONDecodeError:
+                    continue
             return None
         except Exception as e:
             print(f"[KernelManager] Command error: {e}")

@@ -3390,17 +3390,17 @@ async function wsShowData(name, startSpec) {
         for (const row of data.rows) {
             // X row
             html += `<tr><td rowspan="3">${row.spectrum}</td><td>X</td>`;
-            for (let c = 0; c < Math.min(row.x.length, 50); c++) html += `<td>${row.x[c].toPrecision(6)}</td>`;
+            for (let c = 0; c < Math.min(row.x.length, 50); c++) html += `<td>${row.x[c] != null ? row.x[c].toPrecision(6) : '—'}</td>`;
             if (row.x.length > 50) html += '<td>…</td>';
             html += '</tr>';
             // Y row
             html += '<tr><td>Y</td>';
-            for (let c = 0; c < Math.min(row.y.length, 50); c++) html += `<td>${row.y[c].toPrecision(6)}</td>`;
+            for (let c = 0; c < Math.min(row.y.length, 50); c++) html += `<td>${row.y[c] != null ? row.y[c].toPrecision(6) : '—'}</td>`;
             if (row.y.length > 50) html += '<td>…</td>';
             html += '</tr>';
             // E row
             html += '<tr><td>E</td>';
-            for (let c = 0; c < Math.min(row.e.length, 50); c++) html += `<td>${row.e[c].toPrecision(6)}</td>`;
+            for (let c = 0; c < Math.min(row.e.length, 50); c++) html += `<td>${row.e[c] != null ? row.e[c].toPrecision(6) : '—'}</td>`;
             if (row.e.length > 50) html += '<td>…</td>';
             html += '</tr>';
         }
