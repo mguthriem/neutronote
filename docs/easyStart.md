@@ -28,6 +28,12 @@ neutronote 33219
 
 The server will print a clickable URL — open it in your browser and you're ready to go.
 
+## Bugs, comments feature requests
+
+The best way to report bugs or request features is by clicking the issues tab on the github repo: https://github.com/mguthriem/neutronote/issues
+
+You can also email Malcolm Guthrie on guthriem@ornl.gov
+
 ## Overview
 
 The neutroNote UI has two main sections: **Timeline** (right) and **Create Entry** (left). You use the templates in **Create Entry** to compose different types of content. When you press **Submit Entry**, the new entry appears on the timeline.
