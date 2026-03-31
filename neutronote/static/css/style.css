@@ -2861,6 +2861,32 @@ pre.code-input {
     color: var(--color-text-muted, #6c757d);
 }
 
+/* Colorfill controls */
+.ws-colorfill-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0 12px;
+    flex-wrap: wrap;
+    font-size: 0.85rem;
+}
+
+.ws-colorfill-controls label {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.ws-colorfill-controls input[type="number"] {
+    padding: 3px 6px;
+    border: 1px solid var(--color-border, #ccc);
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.ws-colorfill-controls input[type="checkbox"] {
+    margin-right: 3px;
+}
+
 /* History list */
 .ws-history-list {
     font-size: 0.85rem;

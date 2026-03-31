@@ -455,9 +455,6 @@ print('Hello from neutroNote!')"></textarea>
         <span class="ws-context-menu-icon">🕐</span> Algorithm History
     </div>
     <div class="ws-context-menu-divider"></div>
-    <div class="ws-context-menu-item" onclick="wsAction('insert')">
-        <span class="ws-context-menu-icon">📝</span> Insert Name
-    </div>
     <div class="ws-context-menu-item" onclick="wsAction('rename')">
         <span class="ws-context-menu-icon">✏️</span> Rename…
     </div>
@@ -3227,7 +3224,6 @@ function wsAction(action) {
         case 'show_data': wsShowData(name, 0); break;
         case 'show_logs': wsShowLogs(name); break;
         case 'history': wsShowHistory(name); break;
-        case 'insert': insertWorkspaceName(name); break;
         case 'rename': wsRename(name); break;
         case 'save': wsSave(name); break;
         case 'delete': deleteWorkspace(name); break;
@@ -3258,7 +3254,8 @@ async function wsPlotSpectrum(name, spectraStr) {
         openWsModal(`Plot Spectrum — ${name}`, `
             <div class="ws-spectrum-picker">
                 <label>Spectra:</label>
-                <input type="text" id="ws-spectra-input" value="0" placeholder="e.g. 0, 5, 10-20">
+                <input type="text" id="ws-spectra-input" value="0" placeholder="e.g. 0, 5, 10-20"
+                       onkeydown="if(event.key==='Enter'){wsPlotSpectrumGo('${name}');}">
                 <button class="btn btn-sm btn-primary" onclick="wsPlotSpectrumGo('${name}')">Plot</button>
                 <span class="ws-hint">0 – ${maxSp - 1} (comma-separated or ranges)</span>
             </div>
@@ -3340,24 +3337,63 @@ async function wsPlotColorfill(name) {
             body.innerHTML = `<div class="ws-loading">❌ ${data.error}</div>`;
             return;
         }
-        body.innerHTML = '<div id="ws-colorfill-plot" class="ws-plot-container"></div>';
-        const plotDiv = document.getElementById('ws-colorfill-plot');
-        const trace = {
-            z: data.z, x: data.x, y: data.y,
-            type: 'heatmap',
-            colorscale: 'Viridis',
-            colorbar: { title: 'Counts' },
-        };
-        const layout = {
-            xaxis: { title: data.x_label || 'X' },
-            yaxis: { title: data.y_label || 'Spectrum Index' },
-            margin: { t: 30, r: 20, b: 50, l: 60 },
-            height: 450,
-        };
-        Plotly.newPlot(plotDiv, [trace], layout, { responsive: true });
+        body.innerHTML = `
+            <div class="ws-colorfill-controls">
+                <label>Min:</label>
+                <input type="number" id="ws-cf-min" placeholder="auto" step="any" style="width:80px">
+                <label>Max:</label>
+                <input type="number" id="ws-cf-max" placeholder="auto" step="any" style="width:80px">
+                <label><input type="checkbox" id="ws-cf-log"> Log scale</label>
+                <button class="btn btn-sm btn-primary" onclick="wsColorfillReplot()">Apply</button>
+            </div>
+            <div id="ws-colorfill-plot" class="ws-plot-container"></div>
+        `;
+        // Store data globally so we can replot with controls
+        window._wsColorfillData = data;
+        wsColorfillReplot();
     } catch (err) {
         document.getElementById('ws-modal-body').innerHTML = `<div class="ws-loading">❌ ${err.message}</div>`;
     }
+}
+
+function wsColorfillReplot() {
+    const data = window._wsColorfillData;
+    if (!data) return;
+    const plotDiv = document.getElementById('ws-colorfill-plot');
+    if (!plotDiv) return;
+
+    const minVal = document.getElementById('ws-cf-min')?.value;
+    const maxVal = document.getElementById('ws-cf-max')?.value;
+    const useLog = document.getElementById('ws-cf-log')?.checked;
+
+    let z = data.z;
+    // For log scale, take log10 of z values (replace <=0 with null)
+    if (useLog) {
+        z = data.z.map(row => row.map(v => (v != null && v > 0) ? Math.log10(v) : null));
+    }
+
+    const zmin = minVal !== '' && minVal !== undefined ? Number(minVal) : undefined;
+    const zmax = maxVal !== '' && maxVal !== undefined ? Number(maxVal) : undefined;
+    // If log scale is on, convert the user-supplied limits to log10
+    const effectiveZmin = (zmin !== undefined && useLog && zmin > 0) ? Math.log10(zmin) : (useLog ? undefined : zmin);
+    const effectiveZmax = (zmax !== undefined && useLog && zmax > 0) ? Math.log10(zmax) : (useLog ? undefined : zmax);
+
+    const trace = {
+        z: z, x: data.x, y: data.y,
+        type: 'heatmap',
+        colorscale: 'Viridis',
+        colorbar: { title: useLog ? 'log₁₀(Counts)' : 'Counts' },
+    };
+    if (effectiveZmin !== undefined) trace.zmin = effectiveZmin;
+    if (effectiveZmax !== undefined) trace.zmax = effectiveZmax;
+
+    const layout = {
+        xaxis: { title: data.x_label || 'X' },
+        yaxis: { title: data.y_label || 'Spectrum Index' },
+        margin: { t: 30, r: 20, b: 50, l: 60 },
+        height: 450,
+    };
+    Plotly.newPlot(plotDiv, [trace], layout, { responsive: true });
 }
 
 // --- Show Data ---

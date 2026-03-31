@@ -238,9 +238,18 @@ def _respond(obj):
 # Global namespace for user code
 _user_namespace = {'__name__': '__main__'}
 
-# Snapshot of namespace keys before any user code runs.
-# Populated after imports so star-imports (e.g. mantid.simpleapi)
-# are excluded from the variables pane.
+# Pre-populate _user_namespace with mantid star-imports so that
+# when a user runs ``from mantid.simpleapi import *`` in a code cell
+# the resulting names are already in the baseline and get filtered
+# out of the variables pane.
+if MANTID_AVAILABLE:
+    try:
+        exec('from mantid.simpleapi import *', _user_namespace)
+    except Exception:
+        pass
+
+# Snapshot of namespace keys *after* the mantid star-import so all
+# algorithm wrappers and constants are excluded from the variables pane.
 _baseline_keys = set(_user_namespace.keys())
 
 def get_workspace_info():
@@ -383,8 +392,7 @@ def get_algorithm_history(ws_name):
         for i in range(history.size()):
             alg_hist = history.getAlgorithmHistory(i)
             props = []
-            for p in range(alg_hist.numberOfProperties()):
-                prop = alg_hist.getPropertyHistory(p)
+            for prop in alg_hist.getProperties():
                 if not prop.isDefault():
                     props.append({'name': prop.name(), 'value': prop.value()})
             items.append({
