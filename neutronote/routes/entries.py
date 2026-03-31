@@ -38,6 +38,30 @@ logger = logging.getLogger(__name__)
 bp = Blueprint("entries", __name__, url_prefix="/entries")
 
 
+def _safe_commit(max_retries=3):
+    """Commit the current DB session with retry logic for SQLite lock errors.
+
+    SQLite on a shared network filesystem (GPFS) can transiently fail with
+    'database is locked' when multiple users write concurrently.  This
+    helper retries a few times before giving up.
+    """
+    import time
+    from sqlalchemy.exc import OperationalError
+
+    for attempt in range(max_retries):
+        try:
+            db.session.commit()
+            return
+        except OperationalError as exc:
+            db.session.rollback()
+            if "locked" in str(exc).lower() and attempt < max_retries - 1:
+                logger.warning("DB locked on commit (attempt %d/%d), retrying…",
+                               attempt + 1, max_retries)
+                time.sleep(0.5 * (attempt + 1))
+            else:
+                raise
+
+
 @bp.route("/")
 def index():
     """Main split-view: entry creation on left, timeline on right."""
@@ -101,7 +125,7 @@ def create_text():
         entry = Entry(type=Entry.TYPE_TEXT, title=title, body=body)
         db.session.add(entry)
         _attach_tags(entry, tag_names)
-        db.session.commit()
+        _safe_commit()
 
     return redirect(url_for("entries.index"))
 
@@ -145,7 +169,7 @@ def setup_notebook():
     config.experiment_start = experiment_start
     config.experiment_end = experiment_end
     config.updated_at = datetime.now(timezone.utc)
-    db.session.commit()
+    _safe_commit()
 
     flash("Notebook settings updated.", "success")
     return redirect(url_for("entries.index"))
@@ -189,7 +213,7 @@ def create_header():
 
     db.session.add(entry)
     _attach_tags(entry, _parse_form_tags())
-    db.session.commit()
+    _safe_commit()
 
     return redirect(url_for("entries.index"))
 
@@ -233,7 +257,7 @@ def create_image():
 
     db.session.add(entry)
     _attach_tags(entry, _parse_form_tags())
-    db.session.commit()
+    _safe_commit()
 
     return redirect(url_for("entries.index"))
 
@@ -365,7 +389,7 @@ def api_pick_image():
     )
     db.session.add(entry)
     _attach_tags(entry, _parse_json_tags(data))
-    db.session.commit()
+    _safe_commit()
 
     return jsonify(ok=True, entry_id=entry.id)
 
@@ -388,7 +412,7 @@ def api_reset_timeline():
     try:
         # Delete all entries
         num_deleted = Entry.query.delete()
-        db.session.commit()
+        _safe_commit()
 
         return jsonify(
             {
@@ -491,7 +515,7 @@ def save_plot_to_timeline():
         body=filename,
     )
     db.session.add(entry)
-    db.session.commit()
+    _safe_commit()
 
     return jsonify({
         "success": True,
@@ -762,7 +786,7 @@ def api_create_code():
     entry = Entry(type=Entry.TYPE_CODE, title=None, body=body)
     db.session.add(entry)
     _attach_tags(entry, _parse_json_tags(data))
-    db.session.commit()
+    _safe_commit()
 
     return jsonify({"success": True, "entry_id": entry.id})
 
@@ -856,7 +880,7 @@ def api_create_data():
 
     db.session.add(entry)
     _attach_tags(entry, _parse_json_tags(data))
-    db.session.commit()
+    _safe_commit()
 
     run_desc = str(run_numbers[0]) if len(run_numbers) == 1 else f"{len(run_numbers)} runs"
     return jsonify(
@@ -892,7 +916,7 @@ def edit(entry_id):
             entry.title = title
             entry.body = body
             entry.mark_edited()
-            db.session.commit()
+            _safe_commit()
 
         return redirect(url_for("entries.index"))
 
@@ -1426,7 +1450,7 @@ def create_pvlog():
     )
     db.session.add(entry)
     _attach_tags(entry, _parse_json_tags(data))
-    db.session.commit()
+    _safe_commit()
 
     return jsonify({"success": True, "entry_id": entry.id})
 
@@ -1480,7 +1504,7 @@ def add_tag_to_entry(entry_id):
     if tag not in entry.tags.all():
         entry.tags.append(tag)
 
-    db.session.commit()
+    _safe_commit()
     return jsonify({"id": tag.id, "name": tag.name})
 
 
@@ -1503,7 +1527,7 @@ def remove_tag_from_entry(entry_id, tag_id):
     if tag.entries.count() == 0:
         db.session.delete(tag)
 
-    db.session.commit()
+    _safe_commit()
     return jsonify({"success": True})
 
 

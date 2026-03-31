@@ -191,6 +191,30 @@ def create_app(test_config=None, ipts=None, instrument_name=None):
     def expire_session():
         db.session.expire_all()
 
+    # ---- Global error handler ----
+    # Log unhandled exceptions so we can diagnose 500 errors even when
+    # running in --quiet mode (no debug traceback shown to user).
+    # Only register in non-testing mode so the test client sees real errors.
+    if not app.testing:
+
+        @app.errorhandler(Exception)
+        def unhandled_exception(error):
+            import traceback
+
+            app.logger.error(
+                "Unhandled exception: %s\n%s", error, traceback.format_exc()
+            )
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            return (
+                "<h1>Internal Server Error</h1>"
+                "<p>Something went wrong. The error has been logged.</p>"
+                "<p><a href='/entries/'>← Back to notebook</a></p>",
+                500,
+            )
+
     # ---- Blueprints ----
     from .routes import entries
 
@@ -354,6 +378,20 @@ def main():
 
         # Create the Flask app
         app = create_app(ipts=ipts, instrument_name=instrument_name)
+
+        # Set up file-based error logging so 500 errors are captured even
+        # when the console output is suppressed in quiet mode.
+        log_path = os.path.join(
+            app.config.get("UPLOAD_FOLDER", "."), "..", "neutronote.log"
+        )
+        log_path = os.path.normpath(log_path)
+        file_handler = logging.FileHandler(log_path)
+        file_handler.setLevel(logging.WARNING)
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
+        )
+        app.logger.addHandler(file_handler)
+        app.logger.setLevel(logging.WARNING)
 
         # Quiet the noisy startup banner and werkzeug logs
         sys.stderr = _QuietStderr(sys.stderr)
