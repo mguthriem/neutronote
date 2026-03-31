@@ -443,6 +443,59 @@ def upload_snapshot():
     return jsonify({"success": True, "filename": filename})
 
 
+@bp.route("/api/save-plot-to-timeline", methods=["POST"])
+def save_plot_to_timeline():
+    """
+    API: Save a Plotly plot snapshot as an image entry on the timeline.
+
+    Expects JSON body with:
+        - image_data: base64-encoded PNG data (data:image/png;base64,...)
+        - title: str (caption for the timeline entry)
+
+    Returns:
+        - success: True/False
+        - entry_id: the new entry ID
+    """
+    import base64
+
+    data = request.get_json()
+    if not data or "image_data" not in data:
+        return jsonify({"error": "image_data required"}), 400
+
+    title = data.get("title", "").strip() or "Workspace Plot"
+
+    image_data = data["image_data"]
+
+    # Parse data URL
+    if "," in image_data:
+        _header, encoded = image_data.split(",", 1)
+    else:
+        encoded = image_data
+
+    try:
+        image_bytes = base64.b64decode(encoded)
+    except Exception as e:
+        return jsonify({"error": f"Invalid base64 data: {e}"}), 400
+
+    # Save image file
+    filename = f"wsplot_{uuid.uuid4().hex}.png"
+    upload_folder = current_app.config["UPLOAD_FOLDER"]
+    file_path = os.path.join(upload_folder, filename)
+    with open(file_path, "wb") as f:
+        f.write(image_bytes)
+
+    # Create image entry
+    entry = Entry(
+        type=Entry.TYPE_IMAGE,
+        title=title,
+        body=filename,
+    )
+    db.session.add(entry)
+    db.session.commit()
+
+    return jsonify({"success": True, "entry_id": entry.id})
+
+
 @bp.route("/api/execute", methods=["POST"])
 def execute_code():
     """

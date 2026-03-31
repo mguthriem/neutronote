@@ -3246,6 +3246,42 @@ function wsModalLoading(msg) {
     return `<div class="ws-loading">⏳ ${msg || 'Loading…'}</div>`;
 }
 
+// --- Save-to-timeline helper (shared by spectrum + colorfill) ---
+function _addSaveToTimelineBtn(plotDiv, defaultTitle) {
+    // Remove any existing save button (e.g. on replot)
+    const existing = plotDiv.parentElement.querySelector('.ws-save-timeline-btn');
+    if (existing) existing.remove();
+
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-sm btn-outline ws-save-timeline-btn';
+    btn.textContent = '💾 Save to Timeline';
+    btn.style.marginTop = '8px';
+    btn.onclick = async () => {
+        btn.disabled = true;
+        btn.textContent = '⏳ Saving…';
+        try {
+            const imgData = await Plotly.toImage(plotDiv, { format: 'png', width: 900, height: 500 });
+            const resp = await fetch('/entries/api/save-plot-to-timeline', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image_data: imgData, title: defaultTitle }),
+            });
+            const result = await resp.json();
+            if (result.success) {
+                btn.textContent = '✅ Saved!';
+                btn.disabled = true;
+            } else {
+                btn.textContent = '❌ ' + (result.error || 'Failed');
+                setTimeout(() => { btn.disabled = false; btn.textContent = '💾 Save to Timeline'; }, 3000);
+            }
+        } catch (err) {
+            btn.textContent = '❌ ' + err.message;
+            setTimeout(() => { btn.disabled = false; btn.textContent = '💾 Save to Timeline'; }, 3000);
+        }
+    };
+    plotDiv.parentElement.insertBefore(btn, plotDiv.nextSibling);
+}
+
 // --- Plot Spectrum ---
 async function wsPlotSpectrum(name, spectraStr) {
     if (!spectraStr) {
@@ -3297,6 +3333,9 @@ async function wsPlotSpectrum(name, spectraStr) {
         if (plotDiv) {
             plotDiv.innerHTML = '';
             Plotly.newPlot(plotDiv, traces, layout, { responsive: true });
+            // Add "Save to Timeline" button below the plot
+            const spectraDesc = spectra.length <= 3 ? spectra.join(', ') : `${spectra.length} spectra`;
+            _addSaveToTimelineBtn(plotDiv, `Plot Spectrum — ${name} [${spectraDesc}]`);
         }
     } catch (err) {
         if (plotDiv) plotDiv.innerHTML = `<div class="ws-loading">❌ ${err.message}</div>`;
@@ -3394,6 +3433,9 @@ function wsColorfillReplot() {
         height: 450,
     };
     Plotly.newPlot(plotDiv, [trace], layout, { responsive: true });
+    // Add/refresh "Save to Timeline" button below the colorfill plot
+    const logLabel = useLog ? ' (log)' : '';
+    _addSaveToTimelineBtn(plotDiv, `Colorfill — ${data.name}${logLabel}`);
 }
 
 // --- Show Data ---
