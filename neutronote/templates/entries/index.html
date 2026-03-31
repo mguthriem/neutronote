@@ -3270,6 +3270,8 @@ function _addSaveToTimelineBtn(plotDiv, defaultTitle) {
             if (result.success) {
                 btn.textContent = '✅ Saved!';
                 btn.disabled = true;
+                // Append the new image entry to the timeline immediately
+                _appendImageEntryToTimeline(result.entry_id, result.filename, result.title, result.timestamp);
             } else {
                 btn.textContent = '❌ ' + (result.error || 'Failed');
                 setTimeout(() => { btn.disabled = false; btn.textContent = '💾 Save to Timeline'; }, 3000);
@@ -3280,6 +3282,33 @@ function _addSaveToTimelineBtn(plotDiv, defaultTitle) {
         }
     };
     plotDiv.parentElement.insertBefore(btn, plotDiv.nextSibling);
+}
+
+function _appendImageEntryToTimeline(entryId, filename, title, timestamp) {
+    const timeline = document.getElementById('timeline');
+    if (!timeline) return;
+    const timeStr = timestamp ? new Date(timestamp).toLocaleString() : new Date().toLocaleString();
+    const imgUrl = `/entries/uploads/${encodeURIComponent(filename)}`;
+    const safeTitle = (title || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const entryHtml = `
+        <article class="entry-card entry-type-image" id="entry-${entryId}" data-entry-id="${entryId}">
+            <header class="entry-header entry-header-compact">
+                <div class="entry-header-left">
+                    <span class="entry-type-badge badge-image">Image</span>
+                    <time class="entry-timestamp">${timeStr}</time>
+                </div>
+            </header>
+            <div class="entry-body">
+                <figure class="image-content">
+                    <img src="${imgUrl}" alt="${safeTitle}" loading="lazy">
+                    ${safeTitle ? `<figcaption>${safeTitle}</figcaption>` : ''}
+                </figure>
+            </div>
+        </article>
+    `;
+    timeline.insertAdjacentHTML('beforeend', entryHtml);
+    const newEntry = document.getElementById(`entry-${entryId}`);
+    if (newEntry) newEntry.scrollIntoView({ behavior: 'smooth', block: 'end' });
 }
 
 // --- Plot Spectrum ---

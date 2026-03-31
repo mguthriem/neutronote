@@ -493,7 +493,13 @@ def save_plot_to_timeline():
     db.session.add(entry)
     db.session.commit()
 
-    return jsonify({"success": True, "entry_id": entry.id})
+    return jsonify({
+        "success": True,
+        "entry_id": entry.id,
+        "filename": filename,
+        "title": title,
+        "timestamp": entry.created_at.isoformat() if entry.created_at else None,
+    })
 
 
 @bp.route("/api/execute", methods=["POST"])
