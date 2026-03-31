@@ -293,6 +293,310 @@ def execute_code(code):
         sys.stdout = old_stdout
         sys.stderr = old_stderr
 
+# -----------------------------------------------------------------
+# Workspace interactivity helpers
+# -----------------------------------------------------------------
+
+def rename_workspace(old_name, new_name):
+    """Rename a workspace in the ADS."""
+    if not MANTID_AVAILABLE or ADS is None:
+        return {'success': False, 'error': 'Mantid not available'}
+    if not ADS.doesExist(old_name):
+        return {'success': False, 'error': f'Workspace "{old_name}" not found'}
+    try:
+        RenameWorkspace(InputWorkspace=old_name, OutputWorkspace=new_name)
+        return {'success': True, 'old_name': old_name, 'new_name': new_name}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+def get_algorithm_history(ws_name):
+    """Get the algorithm history of a workspace."""
+    if not MANTID_AVAILABLE or ADS is None:
+        return {'success': False, 'error': 'Mantid not available'}
+    if not ADS.doesExist(ws_name):
+        return {'success': False, 'error': f'Workspace "{ws_name}" not found'}
+    try:
+        ws = ADS.retrieve(ws_name)
+        history = ws.getHistory()
+        items = []
+        for i in range(history.size()):
+            alg_hist = history.getAlgorithmHistory(i)
+            props = []
+            for p in range(alg_hist.numberOfProperties()):
+                prop = alg_hist.getPropertyHistory(p)
+                if not prop.isDefault():
+                    props.append({'name': prop.name(), 'value': prop.value()})
+            items.append({
+                'name': alg_hist.name(),
+                'version': alg_hist.version(),
+                'execution_date': str(alg_hist.executionDate()),
+                'duration': alg_hist.executionDuration(),
+                'properties': props,
+            })
+        return {'success': True, 'name': ws_name, 'history': items}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+def extract_spectrum_data(ws_name, spectra, max_points=5000):
+    """Extract X/Y/E data for given spectrum indices.
+    
+    spectra: list of int spectrum indices.
+    Returns dict with traces list [{x, y, e, spectrum_index, label}].
+    """
+    if not MANTID_AVAILABLE or ADS is None:
+        return {'success': False, 'error': 'Mantid not available'}
+    if not ADS.doesExist(ws_name):
+        return {'success': False, 'error': f'Workspace "{ws_name}" not found'}
+    try:
+        ws = ADS.retrieve(ws_name)
+        n_hist = ws.getNumberHistograms()
+        n_bins = ws.blocksize()
+        
+        # Axis labels
+        x_unit = ws.getAxis(0).getUnit().caption()
+        x_unit_label = ws.getAxis(0).getUnit().label()
+        y_unit = ws.YUnitLabel() if hasattr(ws, 'YUnitLabel') else 'Counts'
+        
+        traces = []
+        for si in spectra:
+            if si < 0 or si >= n_hist:
+                continue
+            x = ws.readX(si)
+            y = ws.readY(si)
+            e = ws.readE(si)
+            
+            # Bin-centre X for histograms
+            if len(x) == len(y) + 1:
+                x = [(x[j] + x[j+1]) / 2.0 for j in range(len(y))]
+            else:
+                x = list(x)
+            y = list(y)
+            e = list(e)
+            
+            # Downsample if too large
+            step = max(1, len(y) // max_points)
+            if step > 1:
+                x = x[::step]
+                y = y[::step]
+                e = e[::step]
+            
+            # Filter NaN/Inf
+            clean_x, clean_y, clean_e = [], [], []
+            for xi, yi, ei in zip(x, y, e):
+                import math
+                if math.isfinite(yi):
+                    clean_x.append(xi)
+                    clean_y.append(yi)
+                    clean_e.append(ei)
+            
+            traces.append({
+                'x': clean_x,
+                'y': clean_y,
+                'e': clean_e,
+                'spectrum_index': si,
+                'label': f'Spectrum {si}',
+            })
+        
+        return {
+            'success': True,
+            'name': ws_name,
+            'traces': traces,
+            'x_label': f'{x_unit} ({x_unit_label})' if x_unit_label else x_unit,
+            'y_label': y_unit,
+            'num_spectra': n_hist,
+            'num_bins': n_bins,
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+def extract_colorfill_data(ws_name, max_spectra=500, max_bins=2000):
+    """Extract 2D array for colorfill plot.
+    
+    Returns dict with z (2D array), x_edges, y (spectrum indices),
+    and axis labels.
+    """
+    if not MANTID_AVAILABLE or ADS is None:
+        return {'success': False, 'error': 'Mantid not available'}
+    if not ADS.doesExist(ws_name):
+        return {'success': False, 'error': f'Workspace "{ws_name}" not found'}
+    try:
+        ws = ADS.retrieve(ws_name)
+        n_hist = ws.getNumberHistograms()
+        n_bins = ws.blocksize()
+        
+        # Axis labels
+        x_unit = ws.getAxis(0).getUnit().caption()
+        x_unit_label = ws.getAxis(0).getUnit().label()
+        y_unit = 'Spectrum Index'
+        
+        # Downsample if needed
+        spec_step = max(1, n_hist // max_spectra)
+        bin_step = max(1, n_bins // max_bins)
+        
+        spec_indices = list(range(0, n_hist, spec_step))
+        
+        # Get x axis (bin centres from first spectrum)
+        x0 = ws.readX(0)
+        if len(x0) == n_bins + 1:
+            x = [(x0[j] + x0[j+1]) / 2.0 for j in range(0, n_bins, bin_step)]
+        else:
+            x = list(x0[::bin_step])
+        
+        z = []
+        for si in spec_indices:
+            row = list(ws.readY(si)[::bin_step])
+            z.append(row)
+        
+        return {
+            'success': True,
+            'name': ws_name,
+            'z': z,
+            'x': x,
+            'y': spec_indices,
+            'x_label': f'{x_unit} ({x_unit_label})' if x_unit_label else x_unit,
+            'y_label': y_unit,
+            'num_spectra': n_hist,
+            'num_bins': n_bins,
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+def extract_table_data(ws_name, start_spec=0, num_spec=20, max_bins=500):
+    """Extract a page of X/Y/E data for table view.
+    
+    Returns dict with columns and rows for the requested slice.
+    """
+    if not MANTID_AVAILABLE or ADS is None:
+        return {'success': False, 'error': 'Mantid not available'}
+    if not ADS.doesExist(ws_name):
+        return {'success': False, 'error': f'Workspace "{ws_name}" not found'}
+    try:
+        ws = ADS.retrieve(ws_name)
+        n_hist = ws.getNumberHistograms()
+        n_bins = ws.blocksize()
+        
+        end_spec = min(start_spec + num_spec, n_hist)
+        
+        rows = []
+        for si in range(start_spec, end_spec):
+            x = ws.readX(si)
+            y = ws.readY(si)
+            e = ws.readE(si)
+            
+            # Bin centres for histograms
+            if len(x) == len(y) + 1:
+                x = [(x[j] + x[j+1]) / 2.0 for j in range(len(y))]
+            else:
+                x = list(x)
+            
+            # Truncate to max_bins
+            x = list(x[:max_bins])
+            y = list(y[:max_bins])
+            e = list(e[:max_bins])
+            
+            rows.append({
+                'spectrum': si,
+                'x': x,
+                'y': y,
+                'e': e,
+            })
+        
+        return {
+            'success': True,
+            'name': ws_name,
+            'rows': rows,
+            'start_spec': start_spec,
+            'end_spec': end_spec,
+            'num_spectra': n_hist,
+            'num_bins': n_bins,
+            'truncated_bins': n_bins > max_bins,
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+def extract_sample_logs(ws_name):
+    """Extract sample log names, types, and values from a workspace."""
+    if not MANTID_AVAILABLE or ADS is None:
+        return {'success': False, 'error': 'Mantid not available'}
+    if not ADS.doesExist(ws_name):
+        return {'success': False, 'error': f'Workspace "{ws_name}" not found'}
+    try:
+        ws = ADS.retrieve(ws_name)
+        run = ws.run()
+        logs = []
+        for prop in run.getProperties():
+            log_info = {
+                'name': prop.name,
+                'type': type(prop).__name__,
+                'units': prop.units if hasattr(prop, 'units') else '',
+            }
+            # Scalar or short string values
+            if hasattr(prop, 'value'):
+                val = prop.value
+                if isinstance(val, (int, float, bool)):
+                    log_info['value'] = val
+                    log_info['is_series'] = False
+                elif isinstance(val, str) and len(val) < 200:
+                    log_info['value'] = val
+                    log_info['is_series'] = False
+                else:
+                    log_info['is_series'] = True
+                    log_info['size'] = len(val) if hasattr(val, '__len__') else 0
+            else:
+                log_info['is_series'] = False
+                log_info['value'] = str(prop)[:200]
+            logs.append(log_info)
+        
+        return {'success': True, 'name': ws_name, 'logs': logs}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+def extract_log_series(ws_name, log_name):
+    """Extract time-series data for a specific sample log."""
+    if not MANTID_AVAILABLE or ADS is None:
+        return {'success': False, 'error': 'Mantid not available'}
+    if not ADS.doesExist(ws_name):
+        return {'success': False, 'error': f'Workspace "{ws_name}" not found'}
+    try:
+        ws = ADS.retrieve(ws_name)
+        run = ws.run()
+        prop = run.getProperty(log_name)
+        
+        times = prop.times  # numpy array of datetime64
+        values = prop.value  # numpy array of values
+        
+        # Convert to JSON-serialisable lists
+        # times -> ISO strings
+        import numpy as np
+        t_list = []
+        for t in times:
+            # DateAndTime objects -> string
+            t_list.append(str(t))
+        v_list = [float(v) if np.isfinite(v) else None for v in values]
+        
+        return {
+            'success': True,
+            'name': ws_name,
+            'log_name': log_name,
+            'times': t_list,
+            'values': v_list,
+            'units': prop.units if hasattr(prop, 'units') else '',
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+def save_workspace_nexus(ws_name, filepath):
+    """Save a workspace to a NeXus file."""
+    if not MANTID_AVAILABLE or ADS is None:
+        return {'success': False, 'error': 'Mantid not available'}
+    if not ADS.doesExist(ws_name):
+        return {'success': False, 'error': f'Workspace "{ws_name}" not found'}
+    try:
+        SaveNexus(InputWorkspace=ws_name, Filename=filepath)
+        return {'success': True, 'name': ws_name, 'path': filepath}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
 # Main loop - read JSON commands from stdin, write JSON responses to stdout
 while True:
     try:
@@ -333,6 +637,51 @@ while True:
                     print(json.dumps({'type': 'deleted', 'name': ws_name, 'success': False, 'error': str(e)}), flush=True)
             else:
                 print(json.dumps({'type': 'deleted', 'name': ws_name, 'success': False, 'error': 'Mantid not available or no name provided'}), flush=True)
+        
+        elif action == 'rename_workspace':
+            result = rename_workspace(cmd.get('old_name', ''), cmd.get('new_name', ''))
+            print(json.dumps({'type': 'renamed', **result}), flush=True)
+        
+        elif action == 'workspace_history':
+            result = get_algorithm_history(cmd.get('name', ''))
+            print(json.dumps({'type': 'history', **result}), flush=True)
+        
+        elif action == 'plot_spectrum':
+            result = extract_spectrum_data(
+                cmd.get('name', ''),
+                cmd.get('spectra', [0]),
+                cmd.get('max_points', 5000),
+            )
+            print(json.dumps({'type': 'plot_spectrum', **result}), flush=True)
+        
+        elif action == 'plot_colorfill':
+            result = extract_colorfill_data(
+                cmd.get('name', ''),
+                cmd.get('max_spectra', 500),
+                cmd.get('max_bins', 2000),
+            )
+            print(json.dumps({'type': 'plot_colorfill', **result}), flush=True)
+        
+        elif action == 'show_data':
+            result = extract_table_data(
+                cmd.get('name', ''),
+                cmd.get('start_spec', 0),
+                cmd.get('num_spec', 20),
+                cmd.get('max_bins', 500),
+            )
+            print(json.dumps({'type': 'show_data', **result}), flush=True)
+        
+        elif action == 'show_logs':
+            result = extract_sample_logs(cmd.get('name', ''))
+            print(json.dumps({'type': 'show_logs', **result}), flush=True)
+        
+        elif action == 'log_series':
+            result = extract_log_series(cmd.get('name', ''), cmd.get('log_name', ''))
+            print(json.dumps({'type': 'log_series', **result}), flush=True)
+        
+        elif action == 'save_workspace':
+            result = save_workspace_nexus(cmd.get('name', ''), cmd.get('filepath', ''))
+            print(json.dumps({'type': 'saved', **result}), flush=True)
         
         elif action == 'ping':
             print(json.dumps({'type': 'pong'}), flush=True)
@@ -527,6 +876,68 @@ while True:
         else:
             error = result.get("error", "Unknown error")
             return False, error
+
+    # ------------------------------------------------------------------
+    # Workspace interactivity methods
+    # ------------------------------------------------------------------
+
+    def rename_workspace(self, old_name: str, new_name: str) -> Optional[dict]:
+        """Rename a workspace in the kernel's ADS."""
+        if not self.is_alive():
+            return {"success": False, "error": "Kernel is not running"}
+        return self._send_command(
+            {"action": "rename_workspace", "old_name": old_name, "new_name": new_name}
+        )
+
+    def workspace_history(self, name: str) -> Optional[dict]:
+        """Get algorithm history for a workspace."""
+        if not self.is_alive():
+            return {"success": False, "error": "Kernel is not running"}
+        return self._send_command({"action": "workspace_history", "name": name})
+
+    def plot_spectrum(
+        self, name: str, spectra: list[int], max_points: int = 5000
+    ) -> Optional[dict]:
+        """Extract spectrum data for plotting."""
+        if not self.is_alive():
+            return {"success": False, "error": "Kernel is not running"}
+        return self._send_command(
+            {"action": "plot_spectrum", "name": name, "spectra": spectra, "max_points": max_points}
+        )
+
+    def plot_colorfill(self, name: str) -> Optional[dict]:
+        """Extract 2D data for colorfill plot."""
+        if not self.is_alive():
+            return {"success": False, "error": "Kernel is not running"}
+        return self._send_command({"action": "plot_colorfill", "name": name})
+
+    def show_data(
+        self, name: str, start_spec: int = 0, num_spec: int = 20
+    ) -> Optional[dict]:
+        """Extract paginated table data."""
+        if not self.is_alive():
+            return {"success": False, "error": "Kernel is not running"}
+        return self._send_command(
+            {"action": "show_data", "name": name, "start_spec": start_spec, "num_spec": num_spec}
+        )
+
+    def show_logs(self, name: str) -> Optional[dict]:
+        """Get sample logs from a workspace."""
+        if not self.is_alive():
+            return {"success": False, "error": "Kernel is not running"}
+        return self._send_command({"action": "show_logs", "name": name})
+
+    def log_series(self, name: str, log_name: str) -> Optional[dict]:
+        """Get time-series data for a specific sample log."""
+        if not self.is_alive():
+            return {"success": False, "error": "Kernel is not running"}
+        return self._send_command({"action": "log_series", "name": name, "log_name": log_name})
+
+    def save_workspace(self, name: str, filepath: str) -> Optional[dict]:
+        """Save a workspace to NeXus file."""
+        if not self.is_alive():
+            return {"success": False, "error": "Kernel is not running"}
+        return self._send_command({"action": "save_workspace", "name": name, "filepath": filepath})
 
     def get_memory_info(self) -> MemoryInfo:
         """Get memory usage information."""

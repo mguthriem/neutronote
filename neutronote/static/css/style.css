@@ -2699,3 +2699,321 @@ pre.code-input {
 .img-selected-file .btn-clear:hover {
     color: var(--danger, #e53e3e);
 }
+
+/* ===== Workspace Context Menu ===== */
+
+.ws-context-menu {
+    position: fixed;
+    z-index: 10000;
+    background: var(--color-surface, #fff);
+    border: 1px solid var(--color-border, #dee2e6);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    min-width: 200px;
+    padding: 4px 0;
+    font-size: 0.85rem;
+}
+
+.ws-context-menu-header {
+    padding: 6px 12px 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-text-muted, #6c757d);
+    font-family: var(--font-mono, monospace);
+    border-bottom: 1px solid var(--color-border, #dee2e6);
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 250px;
+}
+
+.ws-context-menu-item {
+    padding: 6px 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.1s;
+}
+
+.ws-context-menu-item:hover {
+    background: var(--color-primary-light, #e8f0fe);
+}
+
+.ws-context-menu-item.ws-danger:hover {
+    background: #fee;
+    color: var(--color-danger, #dc3545);
+}
+
+.ws-context-menu-icon {
+    width: 18px;
+    text-align: center;
+    font-size: 0.9rem;
+}
+
+.ws-context-menu-divider {
+    height: 1px;
+    background: var(--color-border, #dee2e6);
+    margin: 4px 0;
+}
+
+/* ===== Workspace Modal ===== */
+
+.ws-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 10001;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ws-modal {
+    background: var(--color-surface, #fff);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+    width: 90vw;
+    max-width: 900px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.ws-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--color-border, #dee2e6);
+    flex-shrink: 0;
+}
+
+.ws-modal-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.ws-modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: var(--color-text-muted, #6c757d);
+    line-height: 1;
+    padding: 0 4px;
+}
+
+.ws-modal-close:hover {
+    color: var(--color-text, #333);
+}
+
+.ws-modal-body {
+    padding: 16px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* Plot container inside modal */
+.ws-plot-container {
+    width: 100%;
+    min-height: 400px;
+}
+
+/* Spectrum picker */
+.ws-spectrum-picker {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.ws-spectrum-picker label {
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.ws-spectrum-picker input {
+    font-size: 0.85rem;
+    padding: 4px 8px;
+    border: 1px solid var(--color-border, #dee2e6);
+    border-radius: 4px;
+    width: 200px;
+    font-family: var(--font-mono, monospace);
+}
+
+.ws-spectrum-picker button {
+    font-size: 0.8rem;
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.ws-spectrum-picker .ws-hint {
+    font-size: 0.75rem;
+    color: var(--color-text-muted, #6c757d);
+}
+
+/* History list */
+.ws-history-list {
+    font-size: 0.85rem;
+}
+
+.ws-history-item {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--color-border-light, #f0f0f0);
+}
+
+.ws-history-item:last-child {
+    border-bottom: none;
+}
+
+.ws-history-alg-name {
+    font-weight: 600;
+    font-family: var(--font-mono, monospace);
+    color: var(--color-primary, #3b82f6);
+}
+
+.ws-history-meta {
+    font-size: 0.75rem;
+    color: var(--color-text-muted, #6c757d);
+    margin-top: 2px;
+}
+
+.ws-history-props {
+    margin-top: 4px;
+    font-size: 0.75rem;
+    font-family: var(--font-mono, monospace);
+    color: var(--color-text-muted);
+}
+
+.ws-history-props span {
+    display: inline-block;
+    background: var(--color-bg, #f8f9fa);
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin: 1px 4px 1px 0;
+}
+
+/* Data table */
+.ws-data-table-wrapper {
+    overflow-x: auto;
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+.ws-data-table {
+    border-collapse: collapse;
+    font-size: 0.75rem;
+    font-family: var(--font-mono, monospace);
+    width: 100%;
+}
+
+.ws-data-table th, .ws-data-table td {
+    padding: 3px 6px;
+    border: 1px solid var(--color-border-light, #eee);
+    text-align: right;
+    white-space: nowrap;
+}
+
+.ws-data-table th {
+    background: var(--color-bg, #f8f9fa);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    font-weight: 600;
+}
+
+.ws-data-table td:first-child {
+    font-weight: 600;
+    text-align: center;
+    background: var(--color-bg, #f8f9fa);
+    position: sticky;
+    left: 0;
+    z-index: 1;
+}
+
+.ws-data-pager {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 8px;
+    font-size: 0.8rem;
+}
+
+.ws-data-pager button {
+    font-size: 0.8rem;
+    padding: 3px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+/* Sample logs */
+.ws-logs-filter {
+    margin-bottom: 8px;
+}
+
+.ws-logs-filter input {
+    font-size: 0.85rem;
+    padding: 4px 8px;
+    border: 1px solid var(--color-border, #dee2e6);
+    border-radius: 4px;
+    width: 250px;
+}
+
+.ws-logs-table {
+    border-collapse: collapse;
+    font-size: 0.8rem;
+    width: 100%;
+}
+
+.ws-logs-table th, .ws-logs-table td {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--color-border-light, #f0f0f0);
+    text-align: left;
+}
+
+.ws-logs-table th {
+    font-weight: 600;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    background: var(--color-bg, #f8f9fa);
+    position: sticky;
+    top: 0;
+}
+
+.ws-logs-table tr:hover {
+    background: var(--color-bg, #f8f9fa);
+}
+
+.ws-log-plot-btn {
+    font-size: 0.7rem;
+    padding: 1px 6px;
+    border-radius: 3px;
+    cursor: pointer;
+    background: var(--color-primary-light, #e8f0fe);
+    border: 1px solid var(--color-primary, #3b82f6);
+    color: var(--color-primary, #3b82f6);
+}
+
+.ws-log-plot-btn:hover {
+    background: var(--color-primary, #3b82f6);
+    color: #fff;
+}
+
+/* Loading spinner for modal */
+.ws-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    color: var(--color-text-muted, #6c757d);
+    font-size: 0.9rem;
+}

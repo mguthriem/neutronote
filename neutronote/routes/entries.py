@@ -549,6 +549,132 @@ def kernel_delete_workspace(name):
     ), (200 if success else 400)
 
 
+# =========================================================================
+# Workspace Interactivity API
+# =========================================================================
+
+
+@bp.route("/api/kernel/workspaces/<name>/rename", methods=["POST"])
+def kernel_rename_workspace(name):
+    """API: Rename a workspace."""
+    data = request.get_json() or {}
+    new_name = data.get("new_name", "").strip()
+    if not new_name:
+        return jsonify({"success": False, "error": "new_name is required"}), 400
+
+    kernel = get_kernel_manager()
+    result = kernel.rename_workspace(name, new_name)
+    if result is None:
+        return jsonify({"success": False, "error": "No response from kernel"}), 500
+    return jsonify(result)
+
+
+@bp.route("/api/kernel/workspaces/<name>/history")
+def kernel_workspace_history(name):
+    """API: Get algorithm history for a workspace."""
+    kernel = get_kernel_manager()
+    result = kernel.workspace_history(name)
+    if result is None:
+        return jsonify({"success": False, "error": "No response from kernel"}), 500
+    return jsonify(result)
+
+
+@bp.route("/api/kernel/workspaces/<name>/plot-spectrum")
+def kernel_plot_spectrum(name):
+    """API: Extract spectrum data for plotting.
+
+    Query params:
+        spectra: comma-separated spectrum indices (default: "0")
+    """
+    spectra_str = request.args.get("spectra", "0")
+    try:
+        spectra = [int(s.strip()) for s in spectra_str.split(",") if s.strip()]
+    except ValueError:
+        return jsonify({"success": False, "error": "Invalid spectra parameter"}), 400
+
+    kernel = get_kernel_manager()
+    result = kernel.plot_spectrum(name, spectra)
+    if result is None:
+        return jsonify({"success": False, "error": "No response from kernel"}), 500
+    return jsonify(result)
+
+
+@bp.route("/api/kernel/workspaces/<name>/plot-colorfill")
+def kernel_plot_colorfill(name):
+    """API: Extract 2D data for colorfill plot."""
+    kernel = get_kernel_manager()
+    result = kernel.plot_colorfill(name)
+    if result is None:
+        return jsonify({"success": False, "error": "No response from kernel"}), 500
+    return jsonify(result)
+
+
+@bp.route("/api/kernel/workspaces/<name>/data")
+def kernel_show_data(name):
+    """API: Get paginated table data from a workspace.
+
+    Query params:
+        start: starting spectrum index (default: 0)
+        count: number of spectra per page (default: 20)
+    """
+    start = request.args.get("start", 0, type=int)
+    count = request.args.get("count", 20, type=int)
+
+    kernel = get_kernel_manager()
+    result = kernel.show_data(name, start_spec=start, num_spec=count)
+    if result is None:
+        return jsonify({"success": False, "error": "No response from kernel"}), 500
+    return jsonify(result)
+
+
+@bp.route("/api/kernel/workspaces/<name>/logs")
+def kernel_show_logs(name):
+    """API: Get sample logs from a workspace."""
+    kernel = get_kernel_manager()
+    result = kernel.show_logs(name)
+    if result is None:
+        return jsonify({"success": False, "error": "No response from kernel"}), 500
+    return jsonify(result)
+
+
+@bp.route("/api/kernel/workspaces/<name>/logs/<log_name>/series")
+def kernel_log_series(name, log_name):
+    """API: Get time-series data for a specific sample log."""
+    kernel = get_kernel_manager()
+    result = kernel.log_series(name, log_name)
+    if result is None:
+        return jsonify({"success": False, "error": "No response from kernel"}), 500
+    return jsonify(result)
+
+
+@bp.route("/api/kernel/workspaces/<name>/save", methods=["POST"])
+def kernel_save_workspace(name):
+    """API: Save workspace to a NeXus file in the IPTS shared folder."""
+    data = request.get_json() or {}
+    filename = data.get("filename", "").strip()
+
+    config = NotebookConfig.get_config()
+    if not config.ipts:
+        return jsonify({"success": False, "error": "No IPTS configured"}), 400
+
+    instrument = current_app.config["INSTRUMENT"]
+    save_dir = os.path.join(instrument.ipts_path(config.ipts), "shared", "neutronote")
+    os.makedirs(save_dir, exist_ok=True)
+
+    if not filename:
+        filename = f"{name}.nxs"
+    if not filename.endswith(".nxs"):
+        filename += ".nxs"
+
+    filepath = os.path.join(save_dir, filename)
+
+    kernel = get_kernel_manager()
+    result = kernel.save_workspace(name, filepath)
+    if result is None:
+        return jsonify({"success": False, "error": "No response from kernel"}), 500
+    return jsonify(result)
+
+
 @bp.route("/api/create/code", methods=["POST"])
 def api_create_code():
     """

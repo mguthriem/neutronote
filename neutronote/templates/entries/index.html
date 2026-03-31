@@ -436,16 +436,50 @@ print('Hello from neutroNote!')"></textarea>
     </aside>
 
 <!-- Workspace Context Menu -->
-<div id="workspace-context-menu" class="context-menu" style="display: none;">
-    <div class="context-menu-item" onclick="workspaceAction('insert')">
-        <span class="context-menu-icon">📝</span> Insert name
+<div id="workspace-context-menu" class="ws-context-menu" style="display: none;">
+    <div class="ws-context-menu-header" id="ws-context-menu-title">workspace</div>
+    <div class="ws-context-menu-item" onclick="wsAction('plot_spectrum')">
+        <span class="ws-context-menu-icon">📈</span> Plot Spectrum…
     </div>
-    <div class="context-menu-item" onclick="workspaceAction('info')">
-        <span class="context-menu-icon">ℹ️</span> Show info
+    <div class="ws-context-menu-item" onclick="wsAction('plot_colorfill')">
+        <span class="ws-context-menu-icon">🌈</span> Plot Colorfill
     </div>
-    <div class="context-menu-divider"></div>
-    <div class="context-menu-item danger" onclick="workspaceAction('delete')">
-        <span class="context-menu-icon">🗑️</span> Delete workspace
+    <div class="ws-context-menu-item" onclick="wsAction('show_data')">
+        <span class="ws-context-menu-icon">�</span> Show Data
+    </div>
+    <div class="ws-context-menu-divider"></div>
+    <div class="ws-context-menu-item" onclick="wsAction('show_logs')">
+        <span class="ws-context-menu-icon">📋</span> Sample Logs
+    </div>
+    <div class="ws-context-menu-item" onclick="wsAction('history')">
+        <span class="ws-context-menu-icon">🕐</span> Algorithm History
+    </div>
+    <div class="ws-context-menu-divider"></div>
+    <div class="ws-context-menu-item" onclick="wsAction('insert')">
+        <span class="ws-context-menu-icon">📝</span> Insert Name
+    </div>
+    <div class="ws-context-menu-item" onclick="wsAction('rename')">
+        <span class="ws-context-menu-icon">✏️</span> Rename…
+    </div>
+    <div class="ws-context-menu-item" onclick="wsAction('save')">
+        <span class="ws-context-menu-icon">💾</span> Save As NeXus…
+    </div>
+    <div class="ws-context-menu-divider"></div>
+    <div class="ws-context-menu-item ws-danger" onclick="wsAction('delete')">
+        <span class="ws-context-menu-icon">🗑️</span> Delete
+    </div>
+</div>
+
+<!-- Workspace Interaction Modal (shared overlay for all workspace views) -->
+<div id="ws-modal" class="ws-modal-overlay" style="display: none;" onclick="if(event.target===this)closeWsModal()">
+    <div class="ws-modal">
+        <div class="ws-modal-header">
+            <h3 id="ws-modal-title">Workspace</h3>
+            <button class="ws-modal-close" onclick="closeWsModal()">×</button>
+        </div>
+        <div class="ws-modal-body" id="ws-modal-body">
+            <!-- Content injected by JS -->
+        </div>
     </div>
 </div>
 
@@ -3021,11 +3055,10 @@ async function refreshWorkspaces() {
             list.innerHTML = '<div class="workspace-empty">No workspaces loaded</div>';
         } else {
             list.innerHTML = data.workspaces.map(ws => `
-                <div class="workspace-item" title="Click to insert name">
+                <div class="workspace-item" oncontextmenu="showWsContextMenu(event, '${ws.name}', ${ws.num_spectra})" title="Right-click for actions">
                     <span class="workspace-icon">📦</span>
                     <span class="workspace-name" onclick="insertWorkspaceName('${ws.name}')">${ws.name}</span>
                     <span class="workspace-info">${ws.type} · ${ws.num_spectra} spec · ${ws.memory_mb.toFixed(1)} MB</span>
-                    <button class="workspace-delete-btn" onclick="deleteWorkspace('${ws.name}', event)" title="Delete workspace">🗑️</button>
                 </div>
             `).join('');
         }
@@ -3146,6 +3179,401 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+
+// =========================================================================
+// Workspace Interactivity (context menu + modals)
+// =========================================================================
+
+// Track which workspace the context menu is targeting
+let _wsContextTarget = null;
+let _wsContextNumSpectra = 0;
+
+function showWsContextMenu(event, wsName, numSpectra) {
+    event.preventDefault();
+    event.stopPropagation();
+    _wsContextTarget = wsName;
+    _wsContextNumSpectra = numSpectra || 0;
+
+    const menu = document.getElementById('workspace-context-menu');
+    const title = document.getElementById('ws-context-menu-title');
+    title.textContent = wsName;
+
+    menu.style.display = 'block';
+    // Position near click, keep on screen
+    let x = event.clientX;
+    let y = event.clientY;
+    const mw = menu.offsetWidth;
+    const mh = menu.offsetHeight;
+    if (x + mw > window.innerWidth) x = window.innerWidth - mw - 4;
+    if (y + mh > window.innerHeight) y = window.innerHeight - mh - 4;
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+}
+
+// Hide context menu on any click
+document.addEventListener('click', () => {
+    document.getElementById('workspace-context-menu').style.display = 'none';
+});
+
+// Dispatch workspace action
+function wsAction(action) {
+    document.getElementById('workspace-context-menu').style.display = 'none';
+    const name = _wsContextTarget;
+    if (!name) return;
+
+    switch (action) {
+        case 'plot_spectrum': wsPlotSpectrum(name); break;
+        case 'plot_colorfill': wsPlotColorfill(name); break;
+        case 'show_data': wsShowData(name, 0); break;
+        case 'show_logs': wsShowLogs(name); break;
+        case 'history': wsShowHistory(name); break;
+        case 'insert': insertWorkspaceName(name); break;
+        case 'rename': wsRename(name); break;
+        case 'save': wsSave(name); break;
+        case 'delete': deleteWorkspace(name); break;
+    }
+}
+
+// --- Modal helpers ---
+function openWsModal(title, html) {
+    document.getElementById('ws-modal-title').textContent = title;
+    document.getElementById('ws-modal-body').innerHTML = html;
+    document.getElementById('ws-modal').style.display = 'flex';
+}
+
+function closeWsModal() {
+    document.getElementById('ws-modal').style.display = 'none';
+    document.getElementById('ws-modal-body').innerHTML = '';
+}
+
+function wsModalLoading(msg) {
+    return `<div class="ws-loading">⏳ ${msg || 'Loading…'}</div>`;
+}
+
+// --- Plot Spectrum ---
+async function wsPlotSpectrum(name, spectraStr) {
+    if (!spectraStr) {
+        // Show picker first
+        const maxSp = _wsContextNumSpectra || 1;
+        openWsModal(`Plot Spectrum — ${name}`, `
+            <div class="ws-spectrum-picker">
+                <label>Spectra:</label>
+                <input type="text" id="ws-spectra-input" value="0" placeholder="e.g. 0, 5, 10-20">
+                <button class="btn btn-sm btn-primary" onclick="wsPlotSpectrumGo('${name}')">Plot</button>
+                <span class="ws-hint">0 – ${maxSp - 1} (comma-separated or ranges)</span>
+            </div>
+            <div id="ws-spectrum-plot" class="ws-plot-container"></div>
+        `);
+        return;
+    }
+
+    // Parse spectra string: "0, 3, 5-10" -> [0, 3, 5, 6, 7, 8, 9, 10]
+    const spectra = parseSpectraString(spectraStr);
+    if (spectra.length === 0) {
+        alert('No valid spectra specified.');
+        return;
+    }
+
+    const plotDiv = document.getElementById('ws-spectrum-plot');
+    if (plotDiv) plotDiv.innerHTML = wsModalLoading('Fetching spectrum data…');
+
+    try {
+        const resp = await fetch(`/entries/api/kernel/workspaces/${encodeURIComponent(name)}/plot-spectrum?spectra=${spectra.join(',')}`);
+        const data = await resp.json();
+        if (!data.success) {
+            if (plotDiv) plotDiv.innerHTML = `<div class="ws-loading">❌ ${data.error}</div>`;
+            return;
+        }
+        // Build Plotly traces
+        const traces = data.traces.map(t => ({
+            x: t.x, y: t.y,
+            name: t.label,
+            type: 'scatter', mode: 'lines',
+        }));
+        const layout = {
+            xaxis: { title: data.x_label || 'X' },
+            yaxis: { title: data.y_label || 'Y' },
+            margin: { t: 30, r: 20, b: 50, l: 60 },
+            height: 420,
+            legend: { orientation: 'h', y: -0.2 },
+        };
+        if (plotDiv) {
+            plotDiv.innerHTML = '';
+            Plotly.newPlot(plotDiv, traces, layout, { responsive: true });
+        }
+    } catch (err) {
+        if (plotDiv) plotDiv.innerHTML = `<div class="ws-loading">❌ ${err.message}</div>`;
+    }
+}
+
+function wsPlotSpectrumGo(name) {
+    const input = document.getElementById('ws-spectra-input');
+    wsPlotSpectrum(name, input ? input.value : '0');
+}
+
+function parseSpectraString(s) {
+    const parts = s.split(',');
+    const result = [];
+    for (const p of parts) {
+        const trimmed = p.trim();
+        if (trimmed.includes('-')) {
+            const [a, b] = trimmed.split('-').map(Number);
+            if (!isNaN(a) && !isNaN(b)) {
+                for (let i = Math.min(a, b); i <= Math.max(a, b); i++) result.push(i);
+            }
+        } else {
+            const n = parseInt(trimmed);
+            if (!isNaN(n)) result.push(n);
+        }
+    }
+    return [...new Set(result)].sort((a, b) => a - b);
+}
+
+// --- Plot Colorfill ---
+async function wsPlotColorfill(name) {
+    openWsModal(`Colorfill — ${name}`, wsModalLoading('Fetching 2D data…'));
+    try {
+        const resp = await fetch(`/entries/api/kernel/workspaces/${encodeURIComponent(name)}/plot-colorfill`);
+        const data = await resp.json();
+        const body = document.getElementById('ws-modal-body');
+        if (!data.success) {
+            body.innerHTML = `<div class="ws-loading">❌ ${data.error}</div>`;
+            return;
+        }
+        body.innerHTML = '<div id="ws-colorfill-plot" class="ws-plot-container"></div>';
+        const plotDiv = document.getElementById('ws-colorfill-plot');
+        const trace = {
+            z: data.z, x: data.x, y: data.y,
+            type: 'heatmap',
+            colorscale: 'Viridis',
+            colorbar: { title: 'Counts' },
+        };
+        const layout = {
+            xaxis: { title: data.x_label || 'X' },
+            yaxis: { title: data.y_label || 'Spectrum Index' },
+            margin: { t: 30, r: 20, b: 50, l: 60 },
+            height: 450,
+        };
+        Plotly.newPlot(plotDiv, [trace], layout, { responsive: true });
+    } catch (err) {
+        document.getElementById('ws-modal-body').innerHTML = `<div class="ws-loading">❌ ${err.message}</div>`;
+    }
+}
+
+// --- Show Data ---
+async function wsShowData(name, startSpec) {
+    if (startSpec === 0) {
+        openWsModal(`Data — ${name}`, wsModalLoading('Loading data…'));
+    } else {
+        document.getElementById('ws-modal-body').innerHTML = wsModalLoading('Loading page…');
+    }
+
+    try {
+        const resp = await fetch(`/entries/api/kernel/workspaces/${encodeURIComponent(name)}/data?start=${startSpec}&count=20`);
+        const data = await resp.json();
+        const body = document.getElementById('ws-modal-body');
+        if (!data.success) {
+            body.innerHTML = `<div class="ws-loading">❌ ${data.error}</div>`;
+            return;
+        }
+
+        // Build table
+        let html = `<div class="ws-data-table-wrapper"><table class="ws-data-table"><thead><tr><th>Spec</th><th>Col</th>`;
+        // Use column indices as headers
+        if (data.rows.length > 0) {
+            const nCols = data.rows[0].x.length;
+            for (let c = 0; c < Math.min(nCols, 50); c++) html += `<th>${c}</th>`;
+            if (nCols > 50) html += `<th>…</th>`;
+        }
+        html += '</tr></thead><tbody>';
+
+        for (const row of data.rows) {
+            // X row
+            html += `<tr><td rowspan="3">${row.spectrum}</td><td>X</td>`;
+            for (let c = 0; c < Math.min(row.x.length, 50); c++) html += `<td>${row.x[c].toPrecision(6)}</td>`;
+            if (row.x.length > 50) html += '<td>…</td>';
+            html += '</tr>';
+            // Y row
+            html += '<tr><td>Y</td>';
+            for (let c = 0; c < Math.min(row.y.length, 50); c++) html += `<td>${row.y[c].toPrecision(6)}</td>`;
+            if (row.y.length > 50) html += '<td>…</td>';
+            html += '</tr>';
+            // E row
+            html += '<tr><td>E</td>';
+            for (let c = 0; c < Math.min(row.e.length, 50); c++) html += `<td>${row.e[c].toPrecision(6)}</td>`;
+            if (row.e.length > 50) html += '<td>…</td>';
+            html += '</tr>';
+        }
+        html += '</tbody></table></div>';
+
+        // Pager
+        const hasPrev = data.start_spec > 0;
+        const hasNext = data.end_spec < data.num_spectra;
+        html += `<div class="ws-data-pager">`;
+        html += `<button ${hasPrev ? '' : 'disabled'} onclick="wsShowData('${name}', ${Math.max(0, data.start_spec - 20)})">← Prev</button>`;
+        html += `<span>Spectra ${data.start_spec}–${data.end_spec - 1} of ${data.num_spectra} (${data.num_bins} bins${data.truncated_bins ? ', showing first 500' : ''})</span>`;
+        html += `<button ${hasNext ? '' : 'disabled'} onclick="wsShowData('${name}', ${data.end_spec})">Next →</button>`;
+        html += `</div>`;
+
+        body.innerHTML = html;
+    } catch (err) {
+        document.getElementById('ws-modal-body').innerHTML = `<div class="ws-loading">❌ ${err.message}</div>`;
+    }
+}
+
+// --- Show Sample Logs ---
+async function wsShowLogs(name) {
+    openWsModal(`Sample Logs — ${name}`, wsModalLoading('Loading logs…'));
+    try {
+        const resp = await fetch(`/entries/api/kernel/workspaces/${encodeURIComponent(name)}/logs`);
+        const data = await resp.json();
+        const body = document.getElementById('ws-modal-body');
+        if (!data.success) {
+            body.innerHTML = `<div class="ws-loading">❌ ${data.error}</div>`;
+            return;
+        }
+
+        let html = `<div class="ws-logs-filter"><input type="text" placeholder="Filter logs…" oninput="filterWsLogs(this.value)"></div>`;
+        html += '<div style="max-height:400px;overflow-y:auto;"><table class="ws-logs-table" id="ws-logs-table"><thead><tr>';
+        html += '<th>Name</th><th>Value</th><th>Units</th><th></th></tr></thead><tbody>';
+
+        for (const log of data.logs) {
+            const val = log.is_series
+                ? `<em>time series (${log.size || '?'} pts)</em>`
+                : (log.value != null ? String(log.value).substring(0, 80) : '—');
+            const plotBtn = log.is_series
+                ? `<button class="ws-log-plot-btn" onclick="wsPlotLog('${name}', '${log.name.replace(/'/g, "\\'")}')">📈 Plot</button>`
+                : '';
+            html += `<tr class="ws-log-row" data-name="${log.name.toLowerCase()}"><td>${log.name}</td><td>${val}</td><td>${log.units || ''}</td><td>${plotBtn}</td></tr>`;
+        }
+
+        html += '</tbody></table></div>';
+        html += '<div id="ws-log-plot-area" class="ws-plot-container" style="margin-top:12px;"></div>';
+        body.innerHTML = html;
+    } catch (err) {
+        document.getElementById('ws-modal-body').innerHTML = `<div class="ws-loading">❌ ${err.message}</div>`;
+    }
+}
+
+function filterWsLogs(query) {
+    const rows = document.querySelectorAll('.ws-log-row');
+    const q = query.toLowerCase();
+    rows.forEach(r => {
+        r.style.display = r.dataset.name.includes(q) ? '' : 'none';
+    });
+}
+
+async function wsPlotLog(wsName, logName) {
+    const plotArea = document.getElementById('ws-log-plot-area');
+    if (!plotArea) return;
+    plotArea.innerHTML = wsModalLoading('Loading time series…');
+    try {
+        const resp = await fetch(`/entries/api/kernel/workspaces/${encodeURIComponent(wsName)}/logs/${encodeURIComponent(logName)}/series`);
+        const data = await resp.json();
+        if (!data.success) {
+            plotArea.innerHTML = `<div class="ws-loading">❌ ${data.error}</div>`;
+            return;
+        }
+        plotArea.innerHTML = '';
+        const trace = {
+            x: data.times, y: data.values,
+            type: 'scatter', mode: 'lines',
+            name: logName,
+        };
+        const layout = {
+            xaxis: { title: 'Time' },
+            yaxis: { title: `${logName}${data.units ? ' (' + data.units + ')' : ''}` },
+            margin: { t: 30, r: 20, b: 50, l: 60 },
+            height: 300,
+        };
+        Plotly.newPlot(plotArea, [trace], layout, { responsive: true });
+    } catch (err) {
+        plotArea.innerHTML = `<div class="ws-loading">❌ ${err.message}</div>`;
+    }
+}
+
+// --- Algorithm History ---
+async function wsShowHistory(name) {
+    openWsModal(`Algorithm History — ${name}`, wsModalLoading('Loading history…'));
+    try {
+        const resp = await fetch(`/entries/api/kernel/workspaces/${encodeURIComponent(name)}/history`);
+        const data = await resp.json();
+        const body = document.getElementById('ws-modal-body');
+        if (!data.success) {
+            body.innerHTML = `<div class="ws-loading">❌ ${data.error}</div>`;
+            return;
+        }
+        if (data.history.length === 0) {
+            body.innerHTML = '<div class="ws-loading">No algorithm history recorded.</div>';
+            return;
+        }
+
+        let html = '<div class="ws-history-list">';
+        for (let i = 0; i < data.history.length; i++) {
+            const h = data.history[i];
+            html += `<div class="ws-history-item">`;
+            html += `<span class="ws-history-alg-name">${i + 1}. ${h.name} v${h.version}</span>`;
+            html += `<div class="ws-history-meta">${h.execution_date} · ${h.duration.toFixed(1)}s</div>`;
+            if (h.properties.length > 0) {
+                html += '<div class="ws-history-props">';
+                for (const p of h.properties) {
+                    const val = p.value.length > 80 ? p.value.substring(0, 80) + '…' : p.value;
+                    html += `<span>${p.name}=${val}</span>`;
+                }
+                html += '</div>';
+            }
+            html += '</div>';
+        }
+        html += '</div>';
+        body.innerHTML = html;
+    } catch (err) {
+        document.getElementById('ws-modal-body').innerHTML = `<div class="ws-loading">❌ ${err.message}</div>`;
+    }
+}
+
+// --- Rename ---
+async function wsRename(name) {
+    const newName = prompt(`Rename workspace "${name}" to:`, name);
+    if (!newName || newName === name) return;
+
+    try {
+        const resp = await fetch(`/entries/api/kernel/workspaces/${encodeURIComponent(name)}/rename`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ new_name: newName }),
+        });
+        const data = await resp.json();
+        if (data.success) {
+            await refreshKernelStatus();
+        } else {
+            alert('Rename failed: ' + (data.error || 'unknown error'));
+        }
+    } catch (err) {
+        alert('Rename failed: ' + err.message);
+    }
+}
+
+// --- Save ---
+async function wsSave(name) {
+    const filename = prompt(`Save workspace "${name}" as NeXus file.\nFilename:`, `${name}.nxs`);
+    if (!filename) return;
+
+    try {
+        const resp = await fetch(`/entries/api/kernel/workspaces/${encodeURIComponent(name)}/save`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename }),
+        });
+        const data = await resp.json();
+        if (data.success) {
+            alert(`✅ Saved to:\n${data.path}`);
+        } else {
+            alert('Save failed: ' + (data.error || 'unknown error'));
+        }
+    } catch (err) {
+        alert('Save failed: ' + err.message);
+    }
+}
 
 // =========================================================================
 // Panel Resizer
