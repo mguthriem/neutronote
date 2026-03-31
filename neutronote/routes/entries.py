@@ -1320,3 +1320,47 @@ def remove_tag_from_entry(entry_id, tag_id):
 
     db.session.commit()
     return jsonify({"success": True})
+
+
+# =========================================================================
+# PDF Export
+# =========================================================================
+
+
+@bp.route("/api/export-pdf", methods=["POST"])
+def export_pdf():
+    """Export the timeline as a PDF to the IPTS shared folder."""
+    config = NotebookConfig.get_config()
+    if not config.ipts:
+        return jsonify({"error": "No IPTS configured"}), 400
+
+    instrument = current_app.config["INSTRUMENT"]
+    ipts_path = instrument.ipts_path(config.ipts)
+    shared_folder = os.path.join(ipts_path, "shared")
+    output_path = os.path.join(shared_folder, f"neutronote_{config.ipts}.pdf")
+
+    upload_folder = current_app.config.get("UPLOAD_FOLDER", "")
+
+    entries = Entry.query.order_by(Entry.created_at.asc()).all()
+    if not entries:
+        return jsonify({"error": "No entries to export"}), 400
+
+    try:
+        from ..services.pdf_export import export_timeline_pdf
+
+        result_path = export_timeline_pdf(
+            entries=entries,
+            ipts=config.ipts,
+            upload_folder=upload_folder,
+            output_path=output_path,
+            title=config.title,
+            instrument=instrument.name,
+        )
+        return jsonify({
+            "success": True,
+            "path": result_path,
+            "count": len(entries),
+        })
+    except Exception as e:
+        logger.error("PDF export failed: %s", e, exc_info=True)
+        return jsonify({"error": f"PDF export failed: {e}"}), 500

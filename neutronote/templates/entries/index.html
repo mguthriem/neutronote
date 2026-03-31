@@ -612,6 +612,9 @@ print('Hello from neutroNote!')"></textarea>
         <div class="timeline-header">
             <h2>Timeline</h2>
             <div class="timeline-header-actions">
+                <button type="button" class="btn btn-sm btn-secondary" id="export-pdf-btn" onclick="exportPDF()" title="Export timeline as PDF">
+                    📄 Export PDF
+                </button>
                 <button type="button" class="btn btn-sm btn-secondary" id="timeline-sort-btn" onclick="toggleTimelineSort()" title="Toggle sort order">
                     ↑ Oldest first
                 </button>
@@ -788,6 +791,38 @@ function _flagNewEntry() {
         form.addEventListener('submit', () => _flagNewEntry());
     }
 });
+
+// =============================================================================
+// PDF Export
+// =============================================================================
+
+function exportPDF() {
+    const btn = document.getElementById('export-pdf-btn');
+    const origText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Exporting…';
+
+    fetch('/entries/api/export-pdf', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            alert(`✅ PDF exported (${data.count} entries)\n\n${data.path}`);
+        } else {
+            alert('❌ ' + (data.error || 'PDF export failed'));
+        }
+    })
+    .catch(err => {
+        console.error('PDF export failed:', err);
+        alert('❌ PDF export failed: ' + err.message);
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = origText;
+    });
+}
 
 // =============================================================================
 // Dev Tools

@@ -1077,3 +1077,93 @@ class TestInstrumentAbstraction:
                 assert etype in inst.ENTRY_TYPE_LABELS, (
                     f"{name}: no label for entry type {etype!r}"
                 )
+
+
+class TestPDFExport:
+    """Tests for the PDF export feature."""
+
+    def test_export_pdf_requires_ipts(self, client):
+        """Export should fail when no IPTS is configured."""
+        resp = client.post("/entries/api/export-pdf")
+        data = resp.get_json()
+        assert data["error"]
+        assert "IPTS" in data["error"]
+
+    def test_export_pdf_requires_entries(self, app, client):
+        """Export should fail when there are no entries."""
+        with app.app_context():
+            config = NotebookConfig.get_config()
+            config.ipts = "99999"
+            db.session.commit()
+
+        resp = client.post("/entries/api/export-pdf")
+        data = resp.get_json()
+        assert "error" in data
+        assert "No entries" in data["error"]
+
+    def test_export_pdf_success(self, app, client):
+        """Export should succeed with configured IPTS and entries."""
+        with app.app_context():
+            config = NotebookConfig.get_config()
+            config.ipts = "99999"
+            db.session.commit()
+
+            # Create some entries of different types
+            e1 = Entry(type="text", title="Test note", body="Hello world")
+            e2 = Entry(
+                type="header",
+                title="Run 12345",
+                body='{"start_time": "2024-01-01", "end_time": "2024-01-02", '
+                '"duration": 3600, "total_counts": 1000000}',
+            )
+            e3 = Entry(type="code", title="Script", body='{"code": "print(1)", "output": "1"}')
+            db.session.add_all([e1, e2, e3])
+            db.session.commit()
+
+        # Use a temp directory as the output target so we don't write to real IPTS
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Monkey-patch ipts_path to use tmpdir
+            instrument = app.config["INSTRUMENT"]
+            orig_ipts_path = instrument.ipts_path
+
+            def mock_ipts_path(ipts):
+                return tmpdir
+
+            instrument.ipts_path = mock_ipts_path
+            try:
+                resp = client.post("/entries/api/export-pdf")
+                data = resp.get_json()
+                assert data["success"] is True
+                assert data["count"] == 3
+                assert data["path"].endswith(".pdf")
+                assert os.path.exists(data["path"])
+            finally:
+                instrument.ipts_path = orig_ipts_path
+
+    def test_export_pdf_service_directly(self, app):
+        """Test the pdf_export service function directly."""
+        from neutronote.services.pdf_export import export_timeline_pdf
+
+        with app.app_context():
+            # Create entries
+            entries = []
+            e = Entry(type="text", title="Note", body="Some text content")
+            db.session.add(e)
+            db.session.commit()
+            entries.append(e)
+
+            with tempfile.TemporaryDirectory() as tmpdir:
+                out = os.path.join(tmpdir, "test.pdf")
+                result = export_timeline_pdf(
+                    entries=entries,
+                    ipts="99999",
+                    upload_folder=tmpdir,
+                    output_path=out,
+                    title="Test Notebook",
+                    instrument="SNAP",
+                )
+                assert os.path.exists(result)
+                # Check it's a valid PDF
+                with open(result, "rb") as f:
+                    header = f.read(5)
+                assert header == b"%PDF-"
