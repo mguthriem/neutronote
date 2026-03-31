@@ -46,7 +46,7 @@ neutronote() {
         echo "  e.g. neutronote 33219"
         return 1
     fi
-    PYTHONPATH="$projdir" pixi run --manifest-path "$projdir/pyproject.toml" \
+    PYTHONPATH="$projdir" pixi run --frozen --manifest-path "$projdir/pyproject.toml" \
         python -m neutronote.app --quiet --ipts "$1"
 }
 # <<< neutronote <<<

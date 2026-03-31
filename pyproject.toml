@@ -35,7 +35,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 # ---------- Pixi configuration ----------
-[tool.pixi.project]
+[tool.pixi.workspace]
 name = "neutronote"
 channels = [
     "conda-forge",
