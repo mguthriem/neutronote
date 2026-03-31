@@ -177,6 +177,11 @@ except ImportError:
 # Global namespace for user code
 _user_namespace = {'__name__': '__main__'}
 
+# Snapshot of namespace keys before any user code runs.
+# Populated after imports so star-imports (e.g. mantid.simpleapi)
+# are excluded from the variables pane.
+_baseline_keys = set(_user_namespace.keys())
+
 def get_workspace_info():
     """Get info about all workspaces in ADS."""
     if not MANTID_AVAILABLE or ADS is None:
@@ -231,15 +236,34 @@ def get_mantid_memory_mb():
     return total
 
 def get_namespace_vars():
-    """Get list of user-defined variables in the namespace."""
-    # Filter out private vars and built-in types
+    """Get list of user-defined variables in the namespace.
+    
+    Filters out:
+      - private names (starting with _)
+      - names that were in the namespace before any user code ran
+      - callable objects originating from mantid (algorithm wrappers
+        injected by ``from mantid.simpleapi import *``)
+      - modules
+    """
+    import types as _types
     vars_list = []
     for name, val in _user_namespace.items():
-        if not name.startswith('_'):
-            vars_list.append({
-                'name': name,
-                'type': type(val).__name__,
-            })
+        if name.startswith('_'):
+            continue
+        if name in _baseline_keys:
+            continue
+        # Skip modules
+        if isinstance(val, _types.ModuleType):
+            continue
+        # Skip mantid algorithm wrappers (callable + mantid module origin)
+        if callable(val):
+            mod = getattr(val, '__module__', '') or ''
+            if 'mantid' in mod:
+                continue
+        vars_list.append({
+            'name': name,
+            'type': type(val).__name__,
+        })
     return vars_list
 
 def execute_code(code):
