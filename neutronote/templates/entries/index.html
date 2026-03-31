@@ -3408,10 +3408,12 @@ async function wsPlotColorfill(name) {
         body.innerHTML = `
             <div class="ws-colorfill-controls">
                 <label>Min:</label>
-                <input type="number" id="ws-cf-min" placeholder="auto" step="any" style="width:80px">
+                <input type="number" id="ws-cf-min" placeholder="auto" step="any" style="width:80px"
+                       onkeydown="if(event.key==='Enter') wsColorfillReplot();">
                 <label>Max:</label>
-                <input type="number" id="ws-cf-max" placeholder="auto" step="any" style="width:80px">
-                <label><input type="checkbox" id="ws-cf-log"> Log scale</label>
+                <input type="number" id="ws-cf-max" placeholder="auto" step="any" style="width:80px"
+                       onkeydown="if(event.key==='Enter') wsColorfillReplot();">
+                <label><input type="checkbox" id="ws-cf-log" onchange="wsColorfillReplot()"> Log scale</label>
                 <button class="btn btn-sm btn-primary" onclick="wsColorfillReplot()">Apply</button>
             </div>
             <div id="ws-colorfill-plot" class="ws-plot-container"></div>
@@ -3450,10 +3452,29 @@ function wsColorfillReplot() {
         z: z, x: data.x, y: data.y,
         type: 'heatmap',
         colorscale: 'Viridis',
-        colorbar: { title: useLog ? 'log₁₀(Counts)' : 'Counts' },
+        colorbar: { title: 'Counts' },
     };
     if (effectiveZmin !== undefined) trace.zmin = effectiveZmin;
     if (effectiveZmax !== undefined) trace.zmax = effectiveZmax;
+
+    // In log mode, label the colorbar with original count values
+    if (useLog) {
+        // Determine the range of log10 values for tick placement
+        const flatZ = z.flat().filter(v => v != null);
+        const logMin = flatZ.length ? Math.min(...flatZ) : 0;
+        const logMax = flatZ.length ? Math.max(...flatZ) : 1;
+        const lo = effectiveZmin !== undefined ? effectiveZmin : Math.floor(logMin);
+        const hi = effectiveZmax !== undefined ? effectiveZmax : Math.ceil(logMax);
+        // Generate integer powers of 10 as tick marks
+        const tickvals = [];
+        const ticktext = [];
+        for (let exp = Math.floor(lo); exp <= Math.ceil(hi); exp++) {
+            tickvals.push(exp);
+            ticktext.push(Math.pow(10, exp).toExponential(0));
+        }
+        trace.colorbar.tickvals = tickvals;
+        trace.colorbar.ticktext = ticktext;
+    }
 
     const layout = {
         xaxis: { title: data.x_label || 'X' },
