@@ -245,14 +245,18 @@ def create_app(test_config=None, ipts=None, instrument_name=None):
 
 
 def _find_free_port(start=6100, end=6999):
-    """Find a free TCP port in the given range."""
+    """Find a free TCP port in the given range.
+
+    Binds to 127.0.0.1 (matching the actual server bind address) so
+    that we correctly detect ports already in use by other neutroNote
+    instances on the same machine.
+    """
     import socket
 
     for p in range(start, end + 1):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
-                s.bind(("0.0.0.0", p))
+                s.bind(("127.0.0.1", p))
                 return p
             except OSError:
                 continue
@@ -296,17 +300,12 @@ def main():
     if port is None:
         port = _find_free_port()
         if port is None:
-            print("No free port found in 6100-6999; defaulting to 6100")
-            port = 6100
+            print("ERROR: No free port found in 6100-6999 range.")
+            print("       Other neutroNote instances may be using all available ports.")
+            print("       You can specify a port manually with --port <number>")
+            import sys
+            sys.exit(1)
 
-    # Try to clear any process listening on the port (best-effort)
-    try:
-        import subprocess
-
-        subprocess.run(["fuser", "-k", f"{port}/tcp"], check=False,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        pass
 
     # Build the URL for the local machine.
     # Use 127.0.0.1 (not "localhost") because on some systems localhost
@@ -367,9 +366,13 @@ def main():
         import socket as _sock
 
         def _run_server():
-            # use_reloader=False to avoid double-start in threaded mode
-            app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
+            try:
+                # use_reloader=False to avoid double-start in threaded mode
+                app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
+            except OSError as exc:
+                _server_error[0] = exc
 
+        _server_error = [None]  # mutable container for thread → main communication
         thread = threading.Thread(target=_run_server, daemon=True)
         thread.start()
 
@@ -379,6 +382,11 @@ def main():
         timeout = 30.0
         url_ok = False
         while time.time() - start < timeout:
+            # If the server thread died (e.g. port already in use), stop waiting.
+            if _server_error[0] is not None:
+                break
+            if not thread.is_alive():
+                break
             try:
                 s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
                 s.settimeout(1)
@@ -397,7 +405,16 @@ def main():
             # If something unexpected happened, ignore and continue
             pass
 
-        if url_ok:
+        if _server_error[0] is not None:
+            print()
+            print(f"  ❌ Failed to start server on port {port}.")
+            print(f"     Error: {_server_error[0]}")
+            print(f"     Another neutroNote instance may be using this port.")
+            print(f"     Try again (a new port will be auto-selected) or use --port <number>.")
+            print()
+            import sys as _sys
+            _sys.exit(1)
+        elif url_ok:
             print()
             print(f"  To open neutroNote, open this link in a browser:")
             print(f"  👉 {url}")
