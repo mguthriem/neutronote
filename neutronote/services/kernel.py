@@ -664,10 +664,12 @@ def extract_colorfill_data(ws_name, max_spectra=500, max_bins=2000):
     except Exception as e:
         return {'success': False, 'error': str(e)}
 
-def extract_table_data(ws_name, start_spec=0, num_spec=20, max_bins=500):
+def extract_table_data(ws_name, start_spec=0, num_spec=20,
+                       start_bin=0, num_bins=50):
     """Extract a page of X/Y/E data for table view.
     
     Returns dict with columns and rows for the requested slice.
+    Supports paging through both spectra (rows) and bins (columns).
     """
     if not MANTID_AVAILABLE or ADS is None:
         return {'success': False, 'error': 'Mantid not available'}
@@ -679,6 +681,7 @@ def extract_table_data(ws_name, start_spec=0, num_spec=20, max_bins=500):
         n_bins = ws.blocksize()
         
         end_spec = min(start_spec + num_spec, n_hist)
+        end_bin = min(start_bin + num_bins, n_bins)
         
         rows = []
         for si in range(start_spec, end_spec):
@@ -692,16 +695,12 @@ def extract_table_data(ws_name, start_spec=0, num_spec=20, max_bins=500):
             else:
                 x = list(x)
             
-            # Truncate to max_bins
-            x = list(x[:max_bins])
-            y = list(y[:max_bins])
-            e = list(e[:max_bins])
-            
+            # Slice to the requested bin window
             rows.append({
                 'spectrum': si,
-                'x': x,
-                'y': y,
-                'e': e,
+                'x': list(x[start_bin:end_bin]),
+                'y': list(y[start_bin:end_bin]),
+                'e': list(e[start_bin:end_bin]),
             })
         
         return {
@@ -712,7 +711,8 @@ def extract_table_data(ws_name, start_spec=0, num_spec=20, max_bins=500):
             'end_spec': end_spec,
             'num_spectra': n_hist,
             'num_bins': n_bins,
-            'truncated_bins': n_bins > max_bins,
+            'start_bin': start_bin,
+            'end_bin': end_bin,
         }
     except Exception as e:
         return {'success': False, 'error': str(e)}
@@ -885,7 +885,8 @@ while True:
                     cmd.get('name', ''),
                     cmd.get('start_spec', 0),
                     cmd.get('num_spec', 20),
-                    cmd.get('max_bins', 500),
+                    cmd.get('start_bin', 0),
+                    cmd.get('num_bins', 50),
                 )
             _respond({'type': 'show_data', **result})
         
@@ -1161,13 +1162,16 @@ while True:
         return self._send_command({"action": "plot_colorfill", "name": name})
 
     def show_data(
-        self, name: str, start_spec: int = 0, num_spec: int = 20
+        self, name: str, start_spec: int = 0, num_spec: int = 20,
+        start_bin: int = 0, num_bins: int = 50,
     ) -> Optional[dict]:
         """Extract paginated table data."""
         if not self.is_alive():
             return {"success": False, "error": "Kernel is not running"}
         return self._send_command(
-            {"action": "show_data", "name": name, "start_spec": start_spec, "num_spec": num_spec}
+            {"action": "show_data", "name": name,
+             "start_spec": start_spec, "num_spec": num_spec,
+             "start_bin": start_bin, "num_bins": num_bins}
         )
 
     def show_logs(self, name: str) -> Optional[dict]:

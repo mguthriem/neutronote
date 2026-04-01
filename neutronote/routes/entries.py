@@ -699,12 +699,19 @@ def kernel_show_data(name):
     Query params:
         start: starting spectrum index (default: 0)
         count: number of spectra per page (default: 20)
+        start_bin: starting bin index (default: 0)
+        num_bins: number of bins per page (default: 50)
     """
     start = request.args.get("start", 0, type=int)
     count = request.args.get("count", 20, type=int)
+    start_bin = request.args.get("start_bin", 0, type=int)
+    num_bins = request.args.get("num_bins", 50, type=int)
 
     kernel = get_kernel_manager()
-    result = kernel.show_data(name, start_spec=start, num_spec=count)
+    result = kernel.show_data(
+        name, start_spec=start, num_spec=count,
+        start_bin=start_bin, num_bins=num_bins,
+    )
     if result is None:
         return jsonify({"success": False, "error": "No response from kernel"}), 500
     return jsonify(result)

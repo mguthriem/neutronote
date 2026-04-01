@@ -3622,15 +3622,19 @@ function wsColorfillAutoToggle() {
 }
 
 // --- Show Data ---
-async function wsShowData(name, startSpec) {
-    if (startSpec === 0) {
+async function wsShowData(name, startSpec, startBin) {
+    if (startBin === undefined) startBin = 0;
+    if (startSpec === 0 && startBin === 0) {
         openWsModal(`Data — ${name}`, wsModalLoading('Loading data…'));
     } else {
         document.getElementById('ws-modal-body').innerHTML = wsModalLoading('Loading page…');
     }
 
+    const binsPerPage = 50;
+    const specsPerPage = 20;
+
     try {
-        const resp = await fetch(`/entries/api/kernel/workspaces/${encodeURIComponent(name)}/data?start=${startSpec}&count=20`);
+        const resp = await fetch(`/entries/api/kernel/workspaces/${encodeURIComponent(name)}/data?start=${startSpec}&count=${specsPerPage}&start_bin=${startBin}&num_bins=${binsPerPage}`);
         const data = await resp.json();
         const body = document.getElementById('ws-modal-body');
         if (!data.success) {
@@ -3638,48 +3642,68 @@ async function wsShowData(name, startSpec) {
             return;
         }
 
+        const eName = name.replace(/'/g, "\\'");
+
+        // Bin pager (top) with jump-to
+        const hasPrevBin = data.start_bin > 0;
+        const hasNextBin = data.end_bin < data.num_bins;
+        let html = `<div class="ws-data-pager ws-data-pager-bins">`;
+        html += `<button ${hasPrevBin ? '' : 'disabled'} onclick="wsShowData('${eName}', ${startSpec}, ${Math.max(0, data.start_bin - binsPerPage)})">◀ Prev</button>`;
+        html += `<span>Bins ${data.start_bin}–${data.end_bin - 1} of ${data.num_bins}</span>`;
+        html += `<button ${hasNextBin ? '' : 'disabled'} onclick="wsShowData('${eName}', ${startSpec}, ${data.end_bin})">Next ▶</button>`;
+        html += `<span class="ws-data-jump">Jump to bin: <input type="number" id="ws-data-jump-bin" min="0" max="${data.num_bins - 1}" value="${data.start_bin}" style="width:70px"`;
+        html += ` onkeydown="if(event.key==='Enter') wsDataJump('${eName}', ${data.num_spectra}, ${data.num_bins})"></span>`;
+        html += `</div>`;
+
         // Build table
-        let html = `<div class="ws-data-table-wrapper"><table class="ws-data-table"><thead><tr><th>Spec</th><th>Col</th>`;
-        // Use column indices as headers
+        html += `<div class="ws-data-table-wrapper"><table class="ws-data-table"><thead><tr><th>Spec</th><th>Col</th>`;
+        // Column headers = actual bin indices
         if (data.rows.length > 0) {
             const nCols = data.rows[0].x.length;
-            for (let c = 0; c < Math.min(nCols, 50); c++) html += `<th>${c}</th>`;
-            if (nCols > 50) html += `<th>…</th>`;
+            for (let c = 0; c < nCols; c++) html += `<th>${data.start_bin + c}</th>`;
         }
         html += '</tr></thead><tbody>';
 
         for (const row of data.rows) {
             // X row
             html += `<tr><td rowspan="3">${row.spectrum}</td><td>X</td>`;
-            for (let c = 0; c < Math.min(row.x.length, 50); c++) html += `<td>${row.x[c] != null ? row.x[c].toPrecision(6) : '—'}</td>`;
-            if (row.x.length > 50) html += '<td>…</td>';
+            for (let c = 0; c < row.x.length; c++) html += `<td>${row.x[c] != null ? row.x[c].toPrecision(6) : '—'}</td>`;
             html += '</tr>';
             // Y row
             html += '<tr><td>Y</td>';
-            for (let c = 0; c < Math.min(row.y.length, 50); c++) html += `<td>${row.y[c] != null ? row.y[c].toPrecision(6) : '—'}</td>`;
-            if (row.y.length > 50) html += '<td>…</td>';
+            for (let c = 0; c < row.y.length; c++) html += `<td>${row.y[c] != null ? row.y[c].toPrecision(6) : '—'}</td>`;
             html += '</tr>';
             // E row
             html += '<tr><td>E</td>';
-            for (let c = 0; c < Math.min(row.e.length, 50); c++) html += `<td>${row.e[c] != null ? row.e[c].toPrecision(6) : '—'}</td>`;
-            if (row.e.length > 50) html += '<td>…</td>';
+            for (let c = 0; c < row.e.length; c++) html += `<td>${row.e[c] != null ? row.e[c].toPrecision(6) : '—'}</td>`;
             html += '</tr>';
         }
         html += '</tbody></table></div>';
 
-        // Pager
+        // Spectrum pager (bottom) with jump-to
         const hasPrev = data.start_spec > 0;
         const hasNext = data.end_spec < data.num_spectra;
         html += `<div class="ws-data-pager">`;
-        html += `<button ${hasPrev ? '' : 'disabled'} onclick="wsShowData('${name}', ${Math.max(0, data.start_spec - 20)})">← Prev</button>`;
-        html += `<span>Spectra ${data.start_spec}–${data.end_spec - 1} of ${data.num_spectra} (${data.num_bins} bins${data.truncated_bins ? ', showing first 500' : ''})</span>`;
-        html += `<button ${hasNext ? '' : 'disabled'} onclick="wsShowData('${name}', ${data.end_spec})">Next →</button>`;
+        html += `<button ${hasPrev ? '' : 'disabled'} onclick="wsShowData('${eName}', ${Math.max(0, data.start_spec - specsPerPage)}, ${startBin})">← Prev</button>`;
+        html += `<span>Spectra ${data.start_spec}–${data.end_spec - 1} of ${data.num_spectra}</span>`;
+        html += `<button ${hasNext ? '' : 'disabled'} onclick="wsShowData('${eName}', ${data.end_spec}, ${startBin})">Next →</button>`;
+        html += `<span class="ws-data-jump">Jump to spectrum: <input type="number" id="ws-data-jump-spec" min="0" max="${data.num_spectra - 1}" value="${data.start_spec}" style="width:70px"`;
+        html += ` onkeydown="if(event.key==='Enter') wsDataJump('${eName}', ${data.num_spectra}, ${data.num_bins})"></span>`;
         html += `</div>`;
 
         body.innerHTML = html;
     } catch (err) {
         document.getElementById('ws-modal-body').innerHTML = `<div class="ws-loading">❌ ${err.message}</div>`;
     }
+}
+
+// Jump-to handler for the data table — reads both jump inputs
+function wsDataJump(name, numSpectra, numBins) {
+    const specInput = document.getElementById('ws-data-jump-spec');
+    const binInput  = document.getElementById('ws-data-jump-bin');
+    let spec = specInput ? Math.max(0, Math.min(parseInt(specInput.value) || 0, numSpectra - 1)) : 0;
+    let bin  = binInput  ? Math.max(0, Math.min(parseInt(binInput.value)  || 0, numBins - 1))    : 0;
+    wsShowData(name, spec, bin);
 }
 
 // --- Show Sample Logs ---

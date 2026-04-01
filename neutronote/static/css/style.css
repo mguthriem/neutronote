@@ -3018,6 +3018,24 @@ pre.code-input {
     font-size: 0.8rem;
 }
 
+.ws-data-pager-bins {
+    margin-top: 0;
+    margin-bottom: 6px;
+}
+
+.ws-data-jump {
+    margin-left: auto;
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.ws-data-jump input {
+    padding: 2px 5px;
+    border: 1px solid var(--color-border, #ccc);
+    border-radius: 4px;
+    font-size: 0.8rem;
+}
+
 .ws-data-pager button {
     font-size: 0.8rem;
     padding: 3px 10px;
