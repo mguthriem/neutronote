@@ -277,26 +277,27 @@ class TestHeaderEntries:
         assert "IPTS-12345" in html
 
     def test_create_header_requires_ipts_config(self, client, app):
-        """Creating header without IPTS configured should show error."""
+        """Creating run header without IPTS configured should show error (file not found)."""
         response = client.post(
             "/entries/create/header",
-            data={"run_number": "12345"},
+            data={"header_kind": "run", "run_number": "12345"},
             follow_redirects=True,
         )
 
         assert response.status_code == 200
-        # Should show error about configuring IPTS
-        assert b"configure" in response.data.lower() or b"IPTS" in response.data
+        # Should show error about the run (file not found since no IPTS)
+        html = response.data.decode().lower()
+        assert "run 12345" in html or "could not locate" in html
 
         # No entry should be created
         with app.app_context():
             assert Entry.query.filter_by(type=Entry.TYPE_HEADER).count() == 0
 
     def test_create_header_entry_invalid_run(self, configured_client, app):
-        """Creating header with invalid run number should handle gracefully."""
+        """Creating run header with invalid run number should handle gracefully."""
         response = configured_client.post(
             "/entries/create/header",
-            data={"run_number": "not-a-number"},
+            data={"header_kind": "run", "run_number": "not-a-number"},
             follow_redirects=True,
         )
 
@@ -308,10 +309,10 @@ class TestHeaderEntries:
             assert Entry.query.filter_by(type=Entry.TYPE_HEADER).count() == 0
 
     def test_create_header_entry_empty_run(self, configured_client, app):
-        """Creating header with empty run number should not create entry."""
+        """Creating run header with empty run number should not create entry."""
         response = configured_client.post(
             "/entries/create/header",
-            data={"run_number": ""},
+            data={"header_kind": "run", "run_number": ""},
             follow_redirects=True,
         )
 
@@ -320,10 +321,10 @@ class TestHeaderEntries:
             assert Entry.query.filter_by(type=Entry.TYPE_HEADER).count() == 0
 
     def test_create_header_entry_nonexistent_run(self, configured_client, app):
-        """Creating header with run that doesn't exist shows error flash message."""
+        """Creating run header with run that doesn't exist shows error flash message."""
         response = configured_client.post(
             "/entries/create/header",
-            data={"run_number": "99999999"},  # Unlikely to exist
+            data={"header_kind": "run", "run_number": "99999999"},  # Unlikely to exist
             follow_redirects=True,
         )
 
@@ -337,14 +338,14 @@ class TestHeaderEntries:
         assert b"Could not locate" in response.data or b"99999999" in response.data
 
     def test_header_entry_not_editable(self, client, app):
-        """Header entries should redirect when trying to edit."""
+        """Run header entries should redirect when trying to edit."""
         import json
 
         with app.app_context():
             entry = Entry(
                 type=Entry.TYPE_HEADER,
                 title="Run 12345",
-                body=json.dumps({"run_number": 12345, "title": "Test"}),
+                body=json.dumps({"header_kind": "run", "run_number": 12345, "title": "Test"}),
             )
             db.session.add(entry)
             db.session.commit()
@@ -369,7 +370,7 @@ class TestHeaderEntries:
             header_entry = Entry(
                 type=Entry.TYPE_HEADER,
                 title="Run 12345",
-                body=json.dumps({"run_number": 12345, "title": "Test Run"}),
+                body=json.dumps({"header_kind": "run", "run_number": 12345, "title": "Test Run"}),
             )
             db.session.add(header_entry)
             db.session.commit()
@@ -379,6 +380,73 @@ class TestHeaderEntries:
 
         # There should be at least one edit link for the text entry
         assert "✏️" in html
+
+    def test_create_section_heading(self, client, app):
+        """Section heading creates a header entry with header_kind=section."""
+        import json
+
+        response = client.post(
+            "/entries/create/header",
+            data={"header_kind": "section", "section_title": "Calibration Runs"},
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+
+        with app.app_context():
+            entry = Entry.query.filter_by(type=Entry.TYPE_HEADER).first()
+            assert entry is not None
+            assert entry.title == "Calibration Runs"
+            body = json.loads(entry.body)
+            assert body["header_kind"] == "section"
+
+    def test_section_heading_empty_title_rejected(self, client, app):
+        """Section heading with empty title should not create entry."""
+        response = client.post(
+            "/entries/create/header",
+            data={"header_kind": "section", "section_title": ""},
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+        with app.app_context():
+            assert Entry.query.filter_by(type=Entry.TYPE_HEADER).count() == 0
+
+    def test_section_heading_is_editable(self, client, app):
+        """Section heading entries should allow editing."""
+        import json
+
+        with app.app_context():
+            entry = Entry(
+                type=Entry.TYPE_HEADER,
+                title="Sample Prep",
+                body=json.dumps({"header_kind": "section"}),
+            )
+            db.session.add(entry)
+            db.session.commit()
+            entry_id = entry.id
+
+        # Should load the edit page (not redirect away)
+        response = client.get(f"/entries/{entry_id}/edit")
+        assert response.status_code == 200
+        assert b"Edit Entry" in response.data
+
+    def test_legacy_header_without_kind_treated_as_run(self, client, app):
+        """Old header entries without header_kind should be treated as run headers (non-editable)."""
+        import json
+
+        with app.app_context():
+            entry = Entry(
+                type=Entry.TYPE_HEADER,
+                title="Run 99999",
+                body=json.dumps({"run_number": 99999, "title": "Old Entry"}),
+            )
+            db.session.add(entry)
+            db.session.commit()
+            entry_id = entry.id
+
+        # Try to access edit page - should redirect (treated as run header)
+        response = client.get(f"/entries/{entry_id}/edit", follow_redirects=True)
+        assert response.status_code == 200
+        assert b"Edit Entry" not in response.data
 
 
 class TestImageEntries:

@@ -1,12 +1,44 @@
 {# Entry card partial – renders a single entry in the timeline #}
-<article class="entry-card entry-{{ entry.type }}" data-entry-id="{{ entry.id }}">
-    {% if entry.type == 'header' %}
-    {# Compact single-row header for run header entries #}
+{# Determine header sub-kind for header entries #}
+{% if entry.type == 'header' %}
+    {% set meta = entry.body|fromjson %}
+    {% set header_kind = meta.get('header_kind', 'run') if meta is mapping else 'run' %}
+{% endif %}
+
+<article class="entry-card entry-{{ entry.type }}{% if entry.type == 'header' %} header-{{ header_kind }}{% endif %}" data-entry-id="{{ entry.id }}">
+    {% if entry.type == 'header' and header_kind == 'section' %}
+    {# ── Section heading: large banner-style divider ── #}
     <header class="entry-header entry-header-compact">
         <div class="entry-header-left">
             <span class="entry-author" title="Author">{{ entry.author }}</span>
             <span class="entry-separator">·</span>
-            <span class="entry-type-badge badge-{{ entry.type }}">{{ entry.type|title }}</span>
+            <span class="entry-type-badge badge-section">Section</span>
+            <span class="entry-separator">·</span>
+            <time class="entry-timestamp" datetime="{{ entry.created_at.isoformat() }}">
+                {{ entry.timestamp_display }}
+            </time>
+            {% if entry.is_edited %}
+                <span class="entry-edited" title="Edited {{ entry.edited_at_display }}{% if entry.edited_by %} by {{ entry.edited_by }}{% endif %}">
+                    (edited{% if entry.edited_by and entry.edited_by != entry.author %} by {{ entry.edited_by }}{% endif %})
+                </span>
+            {% endif %}
+        </div>
+        <div class="entry-actions">
+            <button type="button" class="btn-icon" title="Add tag" onclick="showTagFooter({{ entry.id }})">🏷️</button>
+            <a href="{{ url_for('entries.edit', entry_id=entry.id) }}" class="btn-icon" title="Edit heading">
+                ✏️
+            </a>
+        </div>
+    </header>
+    <h2 class="section-heading-title">{{ entry.title }}</h2>
+
+    {% elif entry.type == 'header' %}
+    {# ── Run header: compact single-row with metadata ── #}
+    <header class="entry-header entry-header-compact">
+        <div class="entry-header-left">
+            <span class="entry-author" title="Author">{{ entry.author }}</span>
+            <span class="entry-separator">·</span>
+            <span class="entry-type-badge badge-run">Run</span>
             <span class="entry-separator">·</span>
             <time class="entry-timestamp" datetime="{{ entry.created_at.isoformat() }}">
                 {{ entry.timestamp_display }}
