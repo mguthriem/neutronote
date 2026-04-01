@@ -341,6 +341,139 @@ def api_browse_files():
     )
 
 
+# =============================================================================
+# Server-side file browser for Python scripts (load/save)
+# =============================================================================
+
+SCRIPT_EXTENSIONS = {".py"}
+
+
+@bp.route("/api/browse-scripts", methods=["GET"])
+def api_browse_scripts():
+    """Browse the IPTS shared directory for Python scripts.
+
+    Query params:
+        path: relative path within the shared directory (default: "")
+
+    Returns JSON: {root, path, parent, dirs: [{name}], files: [{name, size}]}
+    """
+    shared_root = _get_ipts_shared_root()
+    if not shared_root:
+        return jsonify(error="IPTS not configured"), 400
+
+    rel_path = request.args.get("path", "").strip("/")
+    browse_dir = os.path.normpath(os.path.join(shared_root, rel_path))
+
+    # Security: ensure we stay within the shared root
+    if not browse_dir.startswith(shared_root):
+        return jsonify(error="Access denied"), 403
+
+    if not os.path.isdir(browse_dir):
+        return jsonify(error="Directory not found"), 404
+
+    dirs = []
+    files = []
+    try:
+        for item in sorted(os.listdir(browse_dir)):
+            full = os.path.join(browse_dir, item)
+            if os.path.isdir(full):
+                if item.startswith(".") or item == "neutronote":
+                    continue
+                dirs.append({"name": item})
+            elif os.path.isfile(full):
+                ext = os.path.splitext(item)[1].lower()
+                if ext in SCRIPT_EXTENSIONS:
+                    size = os.path.getsize(full)
+                    files.append({"name": item, "size": size})
+    except PermissionError:
+        return jsonify(error="Permission denied"), 403
+
+    parent = os.path.dirname(rel_path) if rel_path else None
+
+    return jsonify(
+        root=f"IPTS-{current_app.config['IPTS']}/shared",
+        path=rel_path,
+        parent=parent,
+        dirs=dirs,
+        files=files,
+    )
+
+
+@bp.route("/api/load-script", methods=["GET"])
+def api_load_script():
+    """Load the contents of a Python script from the IPTS shared directory.
+
+    Query params:
+        path: relative path to the .py file within the shared directory
+    """
+    shared_root = _get_ipts_shared_root()
+    if not shared_root:
+        return jsonify(error="IPTS not configured"), 400
+
+    rel_path = request.args.get("path", "").strip("/")
+    if not rel_path:
+        return jsonify(error="No file path provided"), 400
+
+    filepath = os.path.normpath(os.path.join(shared_root, rel_path))
+
+    if not filepath.startswith(shared_root):
+        return jsonify(error="Access denied"), 403
+
+    if not os.path.isfile(filepath):
+        return jsonify(error="File not found"), 404
+
+    ext = os.path.splitext(filepath)[1].lower()
+    if ext not in SCRIPT_EXTENSIONS:
+        return jsonify(error="Only .py files are allowed"), 400
+
+    try:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+        return jsonify(content=content, path=rel_path, name=os.path.basename(filepath))
+    except PermissionError:
+        return jsonify(error="Permission denied"), 403
+    except Exception as e:
+        return jsonify(error=str(e)), 500
+
+
+@bp.route("/api/save-script", methods=["POST"])
+def api_save_script():
+    """Save Python script content to the IPTS shared directory.
+
+    JSON body: {path: "relative/path/to/script.py", content: "..."}
+    """
+    shared_root = _get_ipts_shared_root()
+    if not shared_root:
+        return jsonify(error="IPTS not configured"), 400
+
+    data = request.get_json(silent=True) or {}
+    rel_path = data.get("path", "").strip("/")
+    content = data.get("content", "")
+
+    if not rel_path:
+        return jsonify(error="No file path provided"), 400
+
+    if not rel_path.endswith(".py"):
+        rel_path += ".py"
+
+    filepath = os.path.normpath(os.path.join(shared_root, rel_path))
+
+    if not filepath.startswith(shared_root):
+        return jsonify(error="Access denied"), 403
+
+    # Create parent directories if needed
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(content)
+        return jsonify(success=True, path=rel_path, name=os.path.basename(filepath))
+    except PermissionError:
+        return jsonify(error="Permission denied"), 403
+    except Exception as e:
+        return jsonify(error=str(e)), 500
+
+
 @bp.route("/api/pick-image", methods=["POST"])
 def api_pick_image():
     """Copy a server-side image into the uploads folder and create an entry.

@@ -249,15 +249,23 @@
         {% if 'code' in enabled_types %}
         <form id="code-form" class="entry-form" style="display:none;">
             <div class="form-group">
-                <label for="code-editor">Python Code</label>
-                <div id="code-editor-container">
-                    <textarea id="code-editor" name="code" rows="10" placeholder="# Write Python code here...
-# You have access to: numpy, pandas, mantid
-# Variables persist across cell executions!
-from mantid.simpleapi import *
-print('Hello from neutroNote!')"></textarea>
+                <div class="code-editor-toolbar">
+                    <label for="code-editor">Python Code</label>
+                    <div class="code-editor-file-actions">
+                        <button type="button" class="btn btn-sm btn-outline" onclick="codeEditorLoad()" title="Load a Python script from the IPTS shared folder">
+                            📂 Load
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline" onclick="codeEditorSave()" title="Save the current code to a Python script">
+                            💾 Save
+                        </button>
+                        <span id="code-file-label" class="code-file-label"></span>
+                    </div>
                 </div>
-                <small class="form-hint">Persistent kernel with mantid. Variables survive across runs.</small>
+                <div id="code-editor-container">
+                    <textarea id="code-editor" name="code"></textarea>
+                </div>
+                <small class="form-hint">Persistent kernel with mantid. Variables survive across runs. &nbsp;
+                    <kbd>Ctrl+/</kbd> toggle comment &nbsp; <kbd>Tab</kbd>/<kbd>Shift+Tab</kbd> indent/outdent &nbsp; <kbd>Shift+Enter</kbd> run</small>
             </div>
             <div class="form-group create-tags-group">
                 <label>Tags (optional)</label>
@@ -2715,6 +2723,237 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // =========================================================================
+// CodeMirror Editor Initialization
+// =========================================================================
+
+// Default imports prepended to a fresh editor
+const CODE_DEFAULT_IMPORTS = `from mantid.simpleapi import *
+import matplotlib.pyplot as plt
+import numpy as np
+{% if instrument_name == 'SNAP' %}import snapwrap.utils as wrap
+{% endif %}`;
+
+let _cmEditor = null;   // CodeMirror instance
+let _cmCurrentFile = null; // Path of loaded file (null = unsaved buffer)
+
+document.addEventListener('DOMContentLoaded', function() {
+    const ta = document.getElementById('code-editor');
+    if (!ta || typeof CodeMirror === 'undefined') return;
+
+    _cmEditor = CodeMirror.fromTextArea(ta, {
+        mode: 'python',
+        theme: 'monokai',
+        lineNumbers: true,
+        indentUnit: 4,
+        tabSize: 4,
+        indentWithTabs: false,       // spaces, not tabs
+        electricChars: true,
+        matchBrackets: true,
+        lineWrapping: false,
+        extraKeys: {
+            // Ctrl+/ → toggle line comment (like Workbench)
+            'Ctrl-/': function(cm) { cm.execCommand('toggleComment'); },
+            // Tab → indent (or indent selected lines)
+            'Tab': function(cm) {
+                if (cm.somethingSelected()) {
+                    cm.execCommand('indentMore');
+                } else {
+                    cm.replaceSelection('    ', 'end');
+                }
+            },
+            // Shift-Tab → outdent
+            'Shift-Tab': function(cm) { cm.execCommand('indentLess'); },
+            // Shift+Enter → run code
+            'Shift-Enter': function(cm) { executeCode(); },
+        },
+    });
+
+    // Set default imports as initial content
+    _cmEditor.setValue(CODE_DEFAULT_IMPORTS);
+    _cmEditor.setCursor(_cmEditor.lineCount(), 0);
+
+    // Refresh the editor when the Code tab becomes visible
+    // (CodeMirror needs to recalculate its layout after display:none → block)
+    const observer = new MutationObserver(function() {
+        const form = document.getElementById('code-form');
+        if (form && form.style.display !== 'none' && _cmEditor) {
+            setTimeout(function() { _cmEditor.refresh(); }, 50);
+        }
+    });
+    const codeForm = document.getElementById('code-form');
+    if (codeForm) observer.observe(codeForm, { attributes: true, attributeFilter: ['style'] });
+});
+
+// Helper: get code from CodeMirror (or fall back to textarea)
+function _getCodeValue() {
+    if (_cmEditor) return _cmEditor.getValue();
+    const ta = document.getElementById('code-editor');
+    return ta ? ta.value : '';
+}
+
+// Helper: set code in CodeMirror (or fall back to textarea)
+function _setCodeValue(val) {
+    if (_cmEditor) { _cmEditor.setValue(val); return; }
+    const ta = document.getElementById('code-editor');
+    if (ta) ta.value = val;
+}
+
+// =========================================================================
+// Code Editor File Load/Save
+// =========================================================================
+
+async function codeEditorLoad() {
+    // Open a file-browser modal showing .py files in the IPTS shared folder
+    _codeFileBrowse('load');
+}
+
+async function codeEditorSave() {
+    // If we have a current file, offer to save to it; otherwise browse for location
+    if (_cmCurrentFile) {
+        if (confirm(`Save to ${_cmCurrentFile}?`)) {
+            await _codeFileSave(_cmCurrentFile);
+        } else {
+            _codeFileBrowse('save');
+        }
+    } else {
+        _codeFileBrowse('save');
+    }
+}
+
+async function _codeFileBrowse(mode) {
+    // Reuse the workspace modal infrastructure
+    const title = mode === 'load' ? '📂 Load Python Script' : '💾 Save Python Script';
+    openWsModal(title, wsModalLoading('Loading file list…'));
+
+    try {
+        const resp = await fetch('/entries/api/browse-scripts?path=');
+        const data = await resp.json();
+        if (data.error) {
+            document.getElementById('ws-modal-body').innerHTML = `<div class="ws-loading">❌ ${data.error}</div>`;
+            return;
+        }
+        _codeFileRenderBrowser(data, mode);
+    } catch (err) {
+        document.getElementById('ws-modal-body').innerHTML = `<div class="ws-loading">❌ ${err.message}</div>`;
+    }
+}
+
+async function _codeFileNavigate(relPath, mode) {
+    const body = document.getElementById('ws-modal-body');
+    body.innerHTML = wsModalLoading('Loading…');
+
+    try {
+        const resp = await fetch(`/entries/api/browse-scripts?path=${encodeURIComponent(relPath)}`);
+        const data = await resp.json();
+        if (data.error) {
+            body.innerHTML = `<div class="ws-loading">❌ ${data.error}</div>`;
+            return;
+        }
+        _codeFileRenderBrowser(data, mode);
+    } catch (err) {
+        body.innerHTML = `<div class="ws-loading">❌ ${err.message}</div>`;
+    }
+}
+
+function _codeFileRenderBrowser(data, mode) {
+    const body = document.getElementById('ws-modal-body');
+    let html = `<div class="code-file-browser">`;
+    html += `<div class="code-file-path">📁 ${data.root}/${data.path || ''}</div>`;
+
+    // Up directory
+    if (data.parent !== null) {
+        html += `<div class="code-file-item code-file-dir" onclick="_codeFileNavigate('${data.parent}', '${mode}')">⬆️ ..</div>`;
+    }
+
+    // Directories
+    for (const d of data.dirs) {
+        const childPath = data.path ? data.path + '/' + d.name : d.name;
+        html += `<div class="code-file-item code-file-dir" onclick="_codeFileNavigate('${childPath}', '${mode}')">📁 ${d.name}</div>`;
+    }
+
+    // Python files
+    for (const f of data.files) {
+        const filePath = data.path ? data.path + '/' + f.name : f.name;
+        const sizeKB = (f.size / 1024).toFixed(1);
+        if (mode === 'load') {
+            html += `<div class="code-file-item code-file-py" onclick="_codeFileLoadFile('${filePath}')">🐍 ${f.name} <span class="code-file-size">${sizeKB} KB</span></div>`;
+        } else {
+            html += `<div class="code-file-item code-file-py" onclick="_codeFileSave('${filePath}')">🐍 ${f.name} <span class="code-file-size">${sizeKB} KB</span></div>`;
+        }
+    }
+
+    // Save mode: allow creating a new file
+    if (mode === 'save') {
+        html += `<div class="code-file-save-new">
+            <input type="text" id="code-save-filename" placeholder="new_script.py" style="width:200px">
+            <button class="btn btn-sm btn-primary" onclick="_codeFileSaveNew('${data.path || ''}')">Save as new file</button>
+        </div>`;
+    }
+
+    html += `</div>`;
+    body.innerHTML = html;
+}
+
+async function _codeFileLoadFile(relPath) {
+    const body = document.getElementById('ws-modal-body');
+    body.innerHTML = wsModalLoading('Loading file…');
+
+    try {
+        const resp = await fetch(`/entries/api/load-script?path=${encodeURIComponent(relPath)}`);
+        const data = await resp.json();
+        if (data.error) {
+            body.innerHTML = `<div class="ws-loading">❌ ${data.error}</div>`;
+            return;
+        }
+        _setCodeValue(data.content);
+        _cmCurrentFile = relPath;
+        document.getElementById('code-file-label').textContent = `📄 ${relPath.split('/').pop()}`;
+        closeWsModal();
+    } catch (err) {
+        body.innerHTML = `<div class="ws-loading">❌ ${err.message}</div>`;
+    }
+}
+
+async function _codeFileSave(relPath) {
+    const code = _getCodeValue();
+    if (!code.trim()) {
+        alert('Nothing to save — editor is empty.');
+        return;
+    }
+
+    try {
+        const resp = await fetch('/entries/api/save-script', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: relPath, content: code }),
+        });
+        const data = await resp.json();
+        if (data.error) {
+            alert('Save failed: ' + data.error);
+            return;
+        }
+        _cmCurrentFile = relPath;
+        document.getElementById('code-file-label').textContent = `📄 ${relPath.split('/').pop()}`;
+        closeWsModal();
+    } catch (err) {
+        alert('Save failed: ' + err.message);
+    }
+}
+
+async function _codeFileSaveNew(dirPath) {
+    const input = document.getElementById('code-save-filename');
+    let filename = (input?.value || '').trim();
+    if (!filename) {
+        alert('Please enter a filename.');
+        return;
+    }
+    if (!filename.endsWith('.py')) filename += '.py';
+    const relPath = dirPath ? dirPath + '/' + filename : filename;
+    await _codeFileSave(relPath);
+}
+
+
+// =========================================================================
 // Code Cell Execution
 // =========================================================================
 
@@ -2722,13 +2961,12 @@ let lastCodeOutput = null;
 let lastCodeError = false;
 
 async function executeCode() {
-    const codeEditor = document.getElementById('code-editor');
     const outputContainer = document.getElementById('code-output-container');
     const output = document.getElementById('code-output');
     const status = document.getElementById('code-status');
     const addBtn = document.getElementById('add-code-btn');
     
-    const code = codeEditor.value.trim();
+    const code = _getCodeValue().trim();
     if (!code) {
         alert('Please enter some code to run.');
         return;
@@ -2844,8 +3082,7 @@ function resetCodeCell() {
 }
 
 async function addCodeToTimeline() {
-    const codeEditor = document.getElementById('code-editor');
-    const code = codeEditor.value.trim();
+    const code = _getCodeValue().trim();
     
     if (!code) {
         alert('No code to add.');
@@ -2878,7 +3115,7 @@ async function addCodeToTimeline() {
             appendCodeEntryToTimeline(result.entry_id, code, lastCodeOutput, lastCodeError);
             
             // Clear the form
-            codeEditor.value = '';
+            _setCodeValue(CODE_DEFAULT_IMPORTS);
             clearCodeOutput();
             clearCreateFormTags('code-form');
             

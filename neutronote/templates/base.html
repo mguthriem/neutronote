@@ -8,8 +8,15 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <!-- KaTeX for LaTeX math rendering -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <!-- CodeMirror 5 for code editing with syntax highlighting -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/lib/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/theme/monokai.min.css">
     <!-- Plotly.js for interactive plots (defer to avoid blocking page render) -->
     <script defer src="https://cdn.plot.ly/plotly-2.27.0.min.js" charset="utf-8"></script>
+    <!-- CodeMirror JS (not deferred — needed before DOMContentLoaded) -->
+    <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/lib/codemirror.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/mode/python/python.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/addon/comment/comment.min.js"></script>
     {% block head %}{% endblock %}
 </head>
 <body>

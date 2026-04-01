@@ -1171,6 +1171,17 @@ a:hover {
     color: var(--color-text-muted);
 }
 
+.form-hint kbd {
+    display: inline-block;
+    padding: 1px 5px;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    background: var(--color-surface-raised, #f0f0f0);
+    border: 1px solid var(--color-border, #ccc);
+    border-radius: 3px;
+    box-shadow: 0 1px 0 var(--color-border, #ccc);
+}
+
 .form-group input[type="number"] {
     width: 100%;
     padding: 0.75rem;
@@ -1887,12 +1898,48 @@ a:hover {
    ============================================ */
 
 /* Code entry form */
+
+/* Toolbar above the editor */
+.code-editor-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.35rem;
+}
+
+.code-editor-file-actions {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+.code-file-label {
+    font-size: 0.8rem;
+    color: var(--color-text-muted, #888);
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 #code-editor-container {
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     overflow: hidden;
 }
 
+/* CodeMirror overrides for our container */
+#code-editor-container .CodeMirror {
+    height: auto;
+    min-height: 200px;
+    max-height: 500px;
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    line-height: 1.5;
+    border: none;
+}
+
+/* Hide the original textarea when CodeMirror takes over */
 #code-editor {
     width: 100%;
     min-height: 200px;
@@ -1908,6 +1955,58 @@ a:hover {
 
 #code-editor:focus {
     outline: none;
+}
+
+/* File browser for scripts (reuses modal) */
+.code-file-browser {
+    font-size: 0.85rem;
+}
+
+.code-file-path {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    padding: 4px 8px;
+    background: var(--color-surface-raised, #f8f8f8);
+    border-radius: var(--radius);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+}
+
+.code-file-item {
+    padding: 6px 10px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.15s;
+}
+
+.code-file-item:hover {
+    background: var(--color-surface-hover, #eef2ff);
+}
+
+.code-file-dir {
+    font-weight: 600;
+}
+
+.code-file-size {
+    float: right;
+    color: var(--color-text-muted, #999);
+    font-size: 0.75rem;
+}
+
+.code-file-save-new {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--color-border-light, #e5e7eb);
+}
+
+.code-file-save-new input {
+    padding: 4px 8px;
+    border: 1px solid var(--color-border, #dee2e6);
+    border-radius: 4px;
+    font-size: 0.85rem;
 }
 
 .code-actions {
