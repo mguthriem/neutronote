@@ -3310,6 +3310,8 @@ function _addSaveToTimelineBtn(plotDiv, defaultTitle) {
                 btn.disabled = true;
                 // Append the new image entry to the timeline immediately
                 _appendImageEntryToTimeline(result.entry_id, result.filename, result.title, result.timestamp);
+                // Close the modal after a brief visual confirmation
+                setTimeout(() => closeWsModal(), 600);
             } else {
                 btn.textContent = '❌ ' + (result.error || 'Failed');
                 setTimeout(() => { btn.disabled = false; btn.textContent = '💾 Save to Timeline'; }, 3000);
