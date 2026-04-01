@@ -339,6 +339,11 @@
                         <input type="datetime-local" id="pvlog-end" name="pv_end" value="{{ config.experiment_end.strftime('%Y-%m-%dT08:00') if config.experiment_end else '' }}">
                     </div>
                 </div>
+                <div class="pvlog-quick-range">
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="setPVLogRange('today')">Today</button>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="setPVLogRange('yesterday')">Yesterday</button>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="setPVLogRange('week')">Past 7 days</button>
+                </div>
             </div>
 
             <div class="form-group">
@@ -4286,6 +4291,38 @@ function pvShortLabel(pvName) {
     return parts.length >= 2 ? parts[parts.length - 2] : pvName;
 }
 
+// ============ PV Log Quick-Range Buttons ============
+
+function setPVLogRange(preset) {
+    const startEl = document.getElementById('pvlog-start');
+    const endEl = document.getElementById('pvlog-end');
+    const now = new Date();
+    let start, end;
+
+    if (preset === 'today') {
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0);
+        end = now;
+    } else if (preset === 'yesterday') {
+        const y = new Date(now);
+        y.setDate(y.getDate() - 1);
+        start = new Date(y.getFullYear(), y.getMonth(), y.getDate(), 0, 0);
+        end = new Date(y.getFullYear(), y.getMonth(), y.getDate(), 23, 59);
+    } else if (preset === 'week') {
+        start = new Date(now);
+        start.setDate(start.getDate() - 7);
+        start.setHours(0, 0, 0, 0);
+        end = now;
+    }
+
+    // Format as YYYY-MM-DDTHH:MM for datetime-local input
+    function fmt(d) {
+        const pad = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    startEl.value = fmt(start);
+    endEl.value = fmt(end);
+}
+
 // ============ Custom PV Autocomplete ============
 
 const PV_PREFIX = {{ pv_prefix | tojson }};
@@ -4408,8 +4445,31 @@ function resolveAliases() {
     if (customPVs.length) parts.push(`${customPVs.length} custom PV(s)`);
     status.textContent = `Querying Oracle for ${parts.join(' + ')}…`;
 
-    const start = document.getElementById('pvlog-start')?.value || '';
-    const end   = document.getElementById('pvlog-end')?.value || '';
+    let start = document.getElementById('pvlog-start')?.value || '';
+    let end   = document.getElementById('pvlog-end')?.value || '';
+
+    // Auto-fill empty fields with "today" range
+    if (!start && !end) {
+        setPVLogRange('today');
+        start = document.getElementById('pvlog-start').value;
+        end   = document.getElementById('pvlog-end').value;
+    } else if (!start) {
+        // Missing start: default to same day at 00:00
+        start = end.slice(0, 10) + 'T00:00';
+        document.getElementById('pvlog-start').value = start;
+    } else if (!end) {
+        // Missing end: default to same day at 23:59
+        end = start.slice(0, 10) + 'T23:59';
+        document.getElementById('pvlog-end').value = end;
+    }
+
+    // If start and end are identical (same datetime), expand to full day
+    if (start === end) {
+        start = start.slice(0, 10) + 'T00:00';
+        end   = end.slice(0, 10) + 'T23:59';
+        document.getElementById('pvlog-start').value = start;
+        document.getElementById('pvlog-end').value = end;
+    }
 
     // Fire parallel requests for each alias
     const aliasRequests = aliases.map(alias => {
