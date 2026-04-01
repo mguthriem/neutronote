@@ -3244,6 +3244,7 @@ function appendCodeEntryToTimeline(entryId, code, output, isError) {
     
     const newEntry = document.getElementById(`entry-${entryId}`);
     if (newEntry) {
+        highlightCodeBlocks(newEntry);
         newEntry.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
 }
@@ -5502,6 +5503,28 @@ function clearCreateFormTags(formId) {
     if (pillsDiv) pillsDiv.innerHTML = '';
 }
 
+// =========================================================================
+// Code Syntax Highlighting in Timeline (CodeMirror runMode)
+// =========================================================================
+
+/**
+ * Apply Python syntax highlighting to <pre class="code-input"> blocks
+ * using CodeMirror's runMode addon.  Already-highlighted blocks are
+ * skipped (idempotent).
+ *
+ * @param {Element} [root=document] - Scope to search within.
+ */
+function highlightCodeBlocks(root) {
+    if (typeof CodeMirror === 'undefined' || !CodeMirror.runMode) return;
+    const blocks = (root || document).querySelectorAll('pre.code-input:not(.cm-highlighted)');
+    blocks.forEach(function(pre) {
+        const code = pre.textContent;
+        pre.textContent = '';
+        pre.classList.add('cm-highlighted', 'cm-s-monokai');
+        CodeMirror.runMode(code, 'python', pre);
+    });
+}
+
 // On page load: populate data-tags on each entry card and render filter bar
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.entry-card[data-entry-id]').forEach(card => {
@@ -5519,6 +5542,8 @@ document.addEventListener('DOMContentLoaded', function() {
     initCreateTagInputs();
     // Sync custom PV area visibility with checkbox (browser may restore checked state)
     if (typeof toggleCustomPV === 'function') toggleCustomPV();
+    // Syntax-highlight code entries in the timeline
+    highlightCodeBlocks();
 });
 
 </script>
