@@ -2762,6 +2762,106 @@ pre.code-input {
     opacity: 0.7;
 }
 
+/* Custom PV chip (purple accent to distinguish from alias-resolved) */
+.pv-chip-custom {
+    background: #f3e8ff !important;
+    color: #6b21a8 !important;
+    border-color: #c084fc !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+/* ============================================
+   Custom PV Input & Autocomplete
+   ============================================ */
+.custom-pv-input-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    border: 1px solid var(--color-border, #dee2e6);
+    border-radius: 6px;
+    overflow: hidden;
+    background: #fff;
+}
+
+.custom-pv-prefix {
+    background: var(--color-surface-alt, #f0f0f0);
+    color: var(--color-text-muted, #666);
+    padding: 0.45rem 0.5rem;
+    font-family: monospace;
+    font-size: 0.88rem;
+    white-space: nowrap;
+    border-right: 1px solid var(--color-border, #dee2e6);
+    user-select: none;
+}
+
+.custom-pv-prefix-dim {
+    color: var(--color-text-muted, #999);
+    font-size: 0.85em;
+}
+
+.custom-pv-input-wrapper {
+    flex: 1;
+    position: relative;
+}
+
+.custom-pv-input-wrapper input {
+    width: 100%;
+    border: none;
+    outline: none;
+    padding: 0.45rem 0.5rem;
+    font-family: monospace;
+    font-size: 0.88rem;
+    background: transparent;
+}
+
+.custom-pv-autocomplete {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    max-height: 200px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid var(--color-border, #dee2e6);
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    z-index: 100;
+}
+
+.custom-pv-option {
+    padding: 0.4rem 0.6rem;
+    font-family: monospace;
+    font-size: 0.85rem;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.custom-pv-option:last-child {
+    border-bottom: none;
+}
+
+.custom-pv-option:hover {
+    background: #e8f0fe;
+}
+
+.custom-pv-no-results {
+    padding: 0.5rem 0.6rem;
+    color: var(--color-text-muted, #999);
+    font-size: 0.85rem;
+    font-style: italic;
+}
+
+.custom-pv-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.4rem;
+}
+
 /* ============================================
    PV Log Chart Toolbar (Expand button)
    ============================================ */

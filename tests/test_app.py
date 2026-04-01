@@ -690,6 +690,35 @@ class TestPVLogPhase0:
             body = json.loads(entry.body)
             assert len(body["traces"]) == 1
 
+    def test_pv_prefix_in_template_context(self, app):
+        """Index page should include the instrument's PV prefix for custom PV input."""
+        with app.app_context():
+            config = NotebookConfig.get_config()
+            config.ipts = "IPTS-12345"
+            db.session.commit()
+
+        client = app.test_client()
+        response = client.get("/entries/", follow_redirects=True)
+        html = response.data.decode()
+        # SNAP prefix should appear in the custom PV input area
+        assert "BL3:SE:" in html
+
+    def test_custom_pv_toggle_present(self, client):
+        """PV Log form should have a Custom PV checkbox."""
+        response = client.get("/entries/", follow_redirects=True)
+        html = response.data.decode()
+        assert "pvlog-custom-toggle" in html
+        assert "Custom PV" in html
+
+    def test_pvlog_search_returns_results_list(self, client):
+        """PV search endpoint returns results list (even when Oracle unavailable)."""
+        # With a non-alias pattern, the endpoint tries Oracle and may error
+        # but should always return a JSON response with either results or error
+        response = client.get("/entries/api/pvlog/search?pattern=BL3:SE:Test")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert "results" in data or "error" in data
+
 
 class TestEntryTags:
     """Tests for the tag system: CRUD, attach/detach, autocomplete."""
@@ -1001,6 +1030,11 @@ class TestInstrumentAbstraction:
         assert "pvs" in aliases["pressure"]
         assert any("BL3" in pv for pv in aliases["pressure"]["pvs"])
 
+    def test_snap_pv_prefix(self):
+        """SNAP PV prefix should be BL3:SE: for custom PV entry."""
+        snap = get_instrument("SNAP")
+        assert snap.pv_prefix() == "BL3:SE:"
+
     def test_snap_run_pvs(self):
         """SNAP run control PVs should use BL3 prefix."""
         snap = get_instrument("SNAP")
@@ -1094,6 +1128,11 @@ class TestInstrumentAbstraction:
         assert "run_number" in aliases
         assert "pvs" in aliases["temperature"]
         assert any("BL4B" in pv for pv in aliases["temperature"]["pvs"])
+
+    def test_ref_l_pv_prefix(self):
+        """REF_L PV prefix should be BL4B:SE: for custom PV entry."""
+        ref_l = get_instrument("REF_L")
+        assert ref_l.pv_prefix() == "BL4B:SE:"
 
     def test_ref_l_run_pvs(self):
         """REF_L run control PVs should use BL4B prefix."""

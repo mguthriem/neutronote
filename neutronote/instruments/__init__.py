@@ -105,6 +105,15 @@ class InstrumentConfig(ABC):
         keys.
         """
 
+    def pv_prefix(self) -> str:
+        """Default prefix for manual PV entry (e.g. ``'BL3:SE:'``).
+
+        Used to pre-populate the custom PV input field and scope
+        autocomplete searches to the beamline's sample-environment PVs.
+        Override in subclass if the convention differs.
+        """
+        return f"{self.beamline}:SE:"
+
     # --- Run-number / state PV names ----------------------------------------
 
     def run_number_pv(self) -> str:
