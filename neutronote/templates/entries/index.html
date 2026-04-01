@@ -3522,7 +3522,24 @@ function wsColorfillReplot() {
         margin: { t: 30, r: 20, b: 50, l: 60 },
         height: 450,
     };
-    Plotly.newPlot(plotDiv, [trace], layout, { responsive: true });
+
+    // Preserve any existing zoom/pan state across z-scale changes
+    if (plotDiv._fullLayout) {
+        const xax = plotDiv._fullLayout.xaxis;
+        const yax = plotDiv._fullLayout.yaxis;
+        if (xax && xax.range && xax._rangeInitial &&
+            (xax.range[0] !== xax._rangeInitial[0] || xax.range[1] !== xax._rangeInitial[1])) {
+            layout.xaxis.range = xax.range.slice();
+            layout.xaxis.autorange = false;
+        }
+        if (yax && yax.range && yax._rangeInitial &&
+            (yax.range[0] !== yax._rangeInitial[0] || yax.range[1] !== yax._rangeInitial[1])) {
+            layout.yaxis.range = yax.range.slice();
+            layout.yaxis.autorange = false;
+        }
+    }
+
+    Plotly.react(plotDiv, [trace], layout, { responsive: true });
     // Add/refresh "Save to Timeline" button below the colorfill plot
     const logLabel = useLog ? ' (log)' : '';
     _addSaveToTimelineBtn(plotDiv, `Colorfill — ${data.name}${logLabel}`);
