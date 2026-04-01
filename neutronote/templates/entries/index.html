@@ -3436,6 +3436,9 @@ function parseSpectraString(s) {
 
 // --- Plot Colorfill ---
 async function wsPlotColorfill(name) {
+    // Clear stashed zoom so a fresh colorfill starts at full range
+    window._wsColorfillXRange = null;
+    window._wsColorfillYRange = null;
     openWsModal(`Colorfill — ${name}`, wsModalLoading('Fetching 2D data…'));
     try {
         const resp = await fetch(`/entries/api/kernel/workspaces/${encodeURIComponent(name)}/plot-colorfill`);
@@ -3523,23 +3526,37 @@ function wsColorfillReplot() {
         height: 450,
     };
 
-    // Preserve any existing zoom/pan state across z-scale changes
-    if (plotDiv._fullLayout) {
-        const xax = plotDiv._fullLayout.xaxis;
-        const yax = plotDiv._fullLayout.yaxis;
-        if (xax && xax.range && xax._rangeInitial &&
-            (xax.range[0] !== xax._rangeInitial[0] || xax.range[1] !== xax._rangeInitial[1])) {
-            layout.xaxis.range = xax.range.slice();
-            layout.xaxis.autorange = false;
-        }
-        if (yax && yax.range && yax._rangeInitial &&
-            (yax.range[0] !== yax._rangeInitial[0] || yax.range[1] !== yax._rangeInitial[1])) {
-            layout.yaxis.range = yax.range.slice();
-            layout.yaxis.autorange = false;
-        }
+    // Preserve any existing zoom/pan state across z-scale changes.
+    // We stash the ranges on relayout events (see listener below).
+    if (window._wsColorfillXRange) {
+        layout.xaxis.range = window._wsColorfillXRange;
+        layout.xaxis.autorange = false;
+    }
+    if (window._wsColorfillYRange) {
+        layout.yaxis.range = window._wsColorfillYRange;
+        layout.yaxis.autorange = false;
     }
 
     Plotly.react(plotDiv, [trace], layout, { responsive: true });
+
+    // Listen for zoom/pan events and stash the ranges so we can
+    // restore them on replot.  Only attach once.
+    if (!plotDiv._wsRelayoutAttached) {
+        plotDiv.on('plotly_relayout', function(ed) {
+            if (ed['xaxis.range[0]'] !== undefined) {
+                window._wsColorfillXRange = [ed['xaxis.range[0]'], ed['xaxis.range[1]']];
+            }
+            if (ed['yaxis.range[0]'] !== undefined) {
+                window._wsColorfillYRange = [ed['yaxis.range[0]'], ed['yaxis.range[1]']];
+            }
+            // Double-click resets → clear saved ranges
+            if (ed['xaxis.autorange'] || ed['yaxis.autorange']) {
+                window._wsColorfillXRange = null;
+                window._wsColorfillYRange = null;
+            }
+        });
+        plotDiv._wsRelayoutAttached = true;
+    }
     // Add/refresh "Save to Timeline" button below the colorfill plot
     const logLabel = useLog ? ' (log)' : '';
     _addSaveToTimelineBtn(plotDiv, `Colorfill — ${data.name}${logLabel}`);
