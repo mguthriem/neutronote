@@ -82,6 +82,43 @@ def _migrate_db(app):
         app.logger.warning("Migration check failed (non-fatal): %s", e)
 
 
+def _fix_group_permissions(notebook_path: str):
+    """Ensure all files in *notebook_path* are group-writable.
+
+    Earlier versions of neutroNote created files with the default umask
+    (typically 0022), giving them mode 640.  On the IPTS shared
+    filesystem this means only the file owner can write — other IPTS
+    members get "attempt to write a readonly database".
+
+    This function adds group-write (+g+w) to every file and directory
+    inside the notebook folder so all IPTS members can contribute.
+    It is safe to call repeatedly; it only changes permissions when
+    needed and silently skips files it cannot chmod (e.g. owned by
+    another user on a filesystem that restricts chmod to owner/root).
+    """
+    import stat
+
+    for dirpath, dirnames, filenames in os.walk(notebook_path):
+        # Fix directory permissions
+        for d in dirnames:
+            p = os.path.join(dirpath, d)
+            try:
+                st = os.stat(p)
+                if not (st.st_mode & stat.S_IWGRP):
+                    os.chmod(p, st.st_mode | stat.S_IWGRP)
+            except OSError:
+                pass
+        # Fix file permissions
+        for f in filenames:
+            p = os.path.join(dirpath, f)
+            try:
+                st = os.stat(p)
+                if not (st.st_mode & stat.S_IWGRP):
+                    os.chmod(p, st.st_mode | stat.S_IWGRP)
+            except OSError:
+                pass
+
+
 def create_app(test_config=None, ipts=None, instrument_name=None):
     """Application factory.
 
@@ -107,13 +144,25 @@ def create_app(test_config=None, ipts=None, instrument_name=None):
     ipts = ipts or os.environ.get("NEUTRONOTE_IPTS")
 
     if ipts and not test_config:
-        # Production: use IPTS shared folder
+        # Production: use IPTS shared folder.
+        # Set a permissive umask so every file the process creates
+        # (database, WAL, uploads, logs, PDFs …) is group-writable.
+        # The IPTS shared directory has the setgid bit, so new files
+        # inherit the correct IPTS-xxxxx group automatically.
+        old_umask = os.umask(0o007)  # → mode 0o770 for dirs, 0o660 for files
+
         notebook_path = get_ipts_notebook_path(ipts, instrument=instrument)
         os.makedirs(notebook_path, exist_ok=True)
         upload_folder = os.path.join(notebook_path, "uploads")
         os.makedirs(upload_folder, exist_ok=True)
         db_path = os.path.join(notebook_path, "neutronote.db")
         app.config["IPTS"] = ipts
+
+        # Fix permissions on any existing files that were created with
+        # a restrictive umask (0022 → mode 640) before this fix.
+        # Without this, databases created by user A remain unwritable
+        # by user B even though both are in the same IPTS group.
+        _fix_group_permissions(notebook_path)
     else:
         # Development/testing: use local instance folder
         os.makedirs(app.instance_path, exist_ok=True)
