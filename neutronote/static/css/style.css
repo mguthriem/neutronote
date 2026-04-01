@@ -2926,6 +2926,11 @@ pre.code-input {
     margin-right: 3px;
 }
 
+.ws-cf-separator {
+    color: var(--color-text-muted, #999);
+    margin: 0 2px;
+}
+
 /* History list */
 .ws-history-list {
     font-size: 0.85rem;

@@ -3450,11 +3450,16 @@ async function wsPlotColorfill(name) {
         }
         body.innerHTML = `
             <div class="ws-colorfill-controls">
+                <label><input type="checkbox" id="ws-cf-autoscale" checked
+                    onchange="wsColorfillAutoToggle()"> Autoscaling</label>
+                <span class="ws-cf-separator">|</span>
                 <label>Min:</label>
-                <input type="number" id="ws-cf-min" placeholder="auto" step="any" style="width:80px"
+                <input type="number" id="ws-cf-min" placeholder="auto" step="any" style="width:90px"
+                       oninput="wsColorfillManualInput()"
                        onkeydown="if(event.key==='Enter') wsColorfillReplot();">
                 <label>Max:</label>
-                <input type="number" id="ws-cf-max" placeholder="auto" step="any" style="width:80px"
+                <input type="number" id="ws-cf-max" placeholder="auto" step="any" style="width:90px"
+                       oninput="wsColorfillManualInput()"
                        onkeydown="if(event.key==='Enter') wsColorfillReplot();">
                 <label><input type="checkbox" id="ws-cf-log" onchange="wsColorfillReplot()"> Log scale</label>
                 <button class="btn btn-sm btn-primary" onclick="wsColorfillReplot()">Apply</button>
@@ -3475,30 +3480,60 @@ function wsColorfillReplot() {
     const plotDiv = document.getElementById('ws-colorfill-plot');
     if (!plotDiv) return;
 
-    const minVal = document.getElementById('ws-cf-min')?.value;
-    const maxVal = document.getElementById('ws-cf-max')?.value;
-    const useLog = document.getElementById('ws-cf-log')?.checked;
+    const autoCheck = document.getElementById('ws-cf-autoscale');
+    const minInput  = document.getElementById('ws-cf-min');
+    const maxInput  = document.getElementById('ws-cf-max');
+    const useLog    = document.getElementById('ws-cf-log')?.checked;
+    const isAuto    = autoCheck?.checked;
+
+    // Determine effective min/max for the colour scale.
+    // data.data_min / data.data_max are the true data bounds (server-side).
+    let effMin = data.data_min !== undefined ? data.data_min : 0;
+    let effMax = data.data_max !== undefined ? data.data_max : 1;
+
+    if (!isAuto) {
+        // Manual: use whichever values the user supplied, fill in the other
+        const userMin = minInput?.value;
+        const userMax = maxInput?.value;
+        if (userMin !== '' && userMin !== undefined) effMin = Number(userMin);
+        if (userMax !== '' && userMax !== undefined) effMax = Number(userMax);
+        // Show the resolved values in the inputs so the user sees them
+        if (minInput && (minInput.value === '' || minInput.value === undefined))
+            minInput.value = effMin;
+        if (maxInput && (maxInput.value === '' || maxInput.value === undefined))
+            maxInput.value = effMax;
+    } else {
+        // Auto mode: clear inputs, show placeholder "auto"
+        if (minInput) minInput.value = '';
+        if (maxInput) maxInput.value = '';
+    }
 
     let z = data.z;
-    // For log scale, take log10 of z values (replace <=0 with null)
+    // For log scale, take log10 of z values (replace <=0 and null with null)
     if (useLog) {
         z = data.z.map(row => row.map(v => (v != null && v > 0) ? Math.log10(v) : null));
     }
 
-    const zmin = minVal !== '' && minVal !== undefined ? Number(minVal) : undefined;
-    const zmax = maxVal !== '' && maxVal !== undefined ? Number(maxVal) : undefined;
-    // If log scale is on, convert the user-supplied limits to log10
-    const effectiveZmin = (zmin !== undefined && useLog && zmin > 0) ? Math.log10(zmin) : (useLog ? undefined : zmin);
-    const effectiveZmax = (zmax !== undefined && useLog && zmax > 0) ? Math.log10(zmax) : (useLog ? undefined : zmax);
+    // Convert limits to log10 if in log mode
+    let zmin, zmax;
+    if (useLog) {
+        zmin = (effMin > 0) ? Math.log10(effMin) : undefined;
+        zmax = (effMax > 0) ? Math.log10(effMax) : undefined;
+    } else {
+        zmin = effMin;
+        zmax = effMax;
+    }
 
     const trace = {
         z: z, x: data.x, y: data.y,
         type: 'heatmap',
         colorscale: 'Viridis',
         colorbar: { title: 'Counts' },
+        hoverongaps: false,
+        zsmooth: false,
     };
-    if (effectiveZmin !== undefined) trace.zmin = effectiveZmin;
-    if (effectiveZmax !== undefined) trace.zmax = effectiveZmax;
+    if (zmin !== undefined) trace.zmin = zmin;
+    if (zmax !== undefined) trace.zmax = zmax;
 
     // In log mode, label the colorbar with original count values
     if (useLog) {
@@ -3506,8 +3541,8 @@ function wsColorfillReplot() {
         const flatZ = z.flat().filter(v => v != null);
         const logMin = flatZ.length ? Math.min(...flatZ) : 0;
         const logMax = flatZ.length ? Math.max(...flatZ) : 1;
-        const lo = effectiveZmin !== undefined ? effectiveZmin : Math.floor(logMin);
-        const hi = effectiveZmax !== undefined ? effectiveZmax : Math.ceil(logMax);
+        const lo = zmin !== undefined ? zmin : Math.floor(logMin);
+        const hi = zmax !== undefined ? zmax : Math.ceil(logMax);
         // Generate integer powers of 10 as tick marks
         const tickvals = [];
         const ticktext = [];
@@ -3524,6 +3559,7 @@ function wsColorfillReplot() {
         yaxis: { title: data.y_label || 'Spectrum Index' },
         margin: { t: 30, r: 20, b: 50, l: 60 },
         height: 450,
+        plot_bgcolor: '#ffffff',
     };
 
     // Preserve any existing zoom/pan state across z-scale changes.
@@ -3560,6 +3596,29 @@ function wsColorfillReplot() {
     // Add/refresh "Save to Timeline" button below the colorfill plot
     const logLabel = useLog ? ' (log)' : '';
     _addSaveToTimelineBtn(plotDiv, `Colorfill — ${data.name}${logLabel}`);
+}
+
+// Called when user types into Min or Max inputs — switch to manual mode
+function wsColorfillManualInput() {
+    const autoCheck = document.getElementById('ws-cf-autoscale');
+    if (autoCheck && autoCheck.checked) {
+        autoCheck.checked = false;
+    }
+    // Don't replot on every keystroke — user will press Enter or Apply.
+    // But we do uncheck autoscaling immediately.
+}
+
+// Called when the Autoscaling checkbox changes
+function wsColorfillAutoToggle() {
+    const autoCheck = document.getElementById('ws-cf-autoscale');
+    if (autoCheck?.checked) {
+        // Switching back to auto: clear user inputs and replot immediately
+        const minInput = document.getElementById('ws-cf-min');
+        const maxInput = document.getElementById('ws-cf-max');
+        if (minInput) minInput.value = '';
+        if (maxInput) maxInput.value = '';
+        wsColorfillReplot();
+    }
 }
 
 // --- Show Data ---

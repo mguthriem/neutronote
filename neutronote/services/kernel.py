@@ -561,7 +561,10 @@ def extract_colorfill_data(ws_name, max_spectra=500, max_bins=2000):
     """Extract 2D array for colorfill plot.
     
     Returns dict with z (2D array), x (common bin centres), y (spectrum indices),
-    and axis labels.
+    axis labels, and data_min/data_max for autoscaling.
+
+    Out-of-range values (e.g. d-spacings that don't exist for a given
+    pixel) are represented as NaN so Plotly renders them as gaps (white).
 
     If the workspace has non-uniform X axes (e.g. after ConvertUnits to
     dSpacing), the data is rebinned onto a common X grid so Plotly's
@@ -620,7 +623,8 @@ def extract_colorfill_data(ws_name, max_spectra=500, max_bins=2000):
             n_common = min(n_bins, max_bins)
             x = np.linspace(x_min, x_max, n_common).tolist()
 
-            # 3. For each spectrum, interpolate Y onto the common grid
+            # 3. For each spectrum, interpolate Y onto the common grid.
+            #    Values outside a spectrum's own X range → NaN (gap).
             z = []
             for si in spec_indices:
                 xi = np.array(ws.readX(si))
@@ -628,10 +632,21 @@ def extract_colorfill_data(ws_name, max_spectra=500, max_bins=2000):
                 # Compute bin centres if histogram
                 if len(xi) == len(yi) + 1:
                     xi = (xi[:-1] + xi[1:]) / 2.0
-                # Interpolate; values outside range become 0
-                row = np.interp(x, xi, yi, left=0.0, right=0.0)
+                # Interpolate; out-of-range → NaN (rendered as white gap)
+                row = np.interp(x, xi, yi, left=float('nan'), right=float('nan'))
                 z.append(row.tolist())
-        
+
+        # Compute data_min/data_max from real data (excluding NaN).
+        # Use numpy for speed — the z list can be huge.
+        z_arr = np.array(z, dtype=np.float64)
+        finite_vals = z_arr[np.isfinite(z_arr)]
+        if finite_vals.size > 0:
+            data_min = float(finite_vals.min())
+            data_max = float(finite_vals.max())
+        else:
+            data_min = 0.0
+            data_max = 1.0
+
         return {
             'success': True,
             'name': ws_name,
@@ -643,6 +658,8 @@ def extract_colorfill_data(ws_name, max_spectra=500, max_bins=2000):
             'num_spectra': n_hist,
             'num_bins': n_bins,
             'common_bins': common_bins,
+            'data_min': data_min,
+            'data_max': data_max,
         }
     except Exception as e:
         return {'success': False, 'error': str(e)}
