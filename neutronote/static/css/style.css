@@ -140,6 +140,20 @@ a:hover {
     border-right: none;
     overflow-y: auto;
     flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Push the kernel panel to the bottom of the create-panel column */
+.create-panel-spacer {
+    flex: 1 1 auto;
+    min-height: 1rem;
+}
+
+.create-panel-separator {
+    border: none;
+    border-top: 1px solid var(--color-border, #dee2e6);
+    margin: 1rem 0 0.75rem 0;
 }
 
 .create-panel h2 {
@@ -2238,7 +2252,7 @@ pre.code-input {
    ============================================ */
 
 .kernel-panel {
-    margin-top: 1rem;
+    flex-shrink: 0;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);

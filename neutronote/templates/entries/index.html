@@ -426,6 +426,10 @@
         </form>
         {% endif %}
 
+        <!-- Spacer pushes kernel panel to bottom of column -->
+        <div class="create-panel-spacer"></div>
+        <hr class="create-panel-separator">
+
         <!-- Kernel Status Panel (always visible) -->
         <div class="kernel-panel">
             <div class="kernel-panel-header" onclick="toggleKernelPanel()">
@@ -4559,7 +4563,11 @@ function resolveAliases() {
             const infoEl = document.getElementById('pvlog-resolve-info');
             let infoHtml = '<div class="pvlog-info-chips">';
             merged.traces.forEach(t => {
-                infoHtml += `<span class="pv-chip pv-chip-active">${t.pv} <small>(${t.count.toLocaleString()} pts)</small></span>`;
+                if (t.count > 0) {
+                    infoHtml += `<span class="pv-chip pv-chip-active">${t.pv} <small>(${t.count.toLocaleString()} pts)</small></span>`;
+                } else {
+                    infoHtml += `<span class="pv-chip pv-chip-skipped" title="No data in time range">${t.pv} <small>(no data)</small></span>`;
+                }
             });
             merged.skipped_details.forEach(s => {
                 const shortPv = pvShortLabel(s.pv);
@@ -4608,6 +4616,22 @@ function renderPVLogPlot(data) {
 
     if (!data.traces || data.traces.length === 0) {
         status.textContent = 'No active PVs found for the selected categories.';
+        return;
+    }
+
+    // Filter out traces with zero data points
+    const emptyTraces = data.traces.filter(t => !t.x || t.x.length === 0 || t.count === 0);
+    data.traces = data.traces.filter(t => t.x && t.x.length > 0 && t.count > 0);
+
+    if (data.traces.length === 0) {
+        const pvNames = emptyTraces.map(t => t.pv || t.name).join(', ');
+        const startEl = document.getElementById('pvlog-start');
+        const endEl   = document.getElementById('pvlog-end');
+        const rangeHint = (startEl && startEl.value && endEl && endEl.value)
+            ? ` between ${startEl.value.replace('T', ' ')} and ${endEl.value.replace('T', ' ')}`
+            : '';
+        status.textContent = `No data recorded for ${pvNames}${rangeHint}. Try a wider time range.`;
+        document.getElementById('pvlog-chart-container').style.display = 'none';
         return;
     }
 
@@ -4700,7 +4724,7 @@ function buildPVLogPlotConfig(data, opts) {
         type: 'scatter',
         mode: 'lines',
         connectgaps: false,
-        line: {color: TRACE_COLORS[i % TRACE_COLORS.length], width: 1.5},
+        line: {color: TRACE_COLORS[i % TRACE_COLORS.length], width: 1.5, shape: 'hv'},
         yaxis: i === 0 ? 'y' : 'y' + (i + 1),
     }));
 
@@ -5493,6 +5517,8 @@ document.addEventListener('DOMContentLoaded', function() {
     renderTagFilterBar();
     // Initialize create-time tag inputs
     initCreateTagInputs();
+    // Sync custom PV area visibility with checkbox (browser may restore checked state)
+    if (typeof toggleCustomPV === 'function') toggleCustomPV();
 });
 
 </script>

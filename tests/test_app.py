@@ -1026,7 +1026,8 @@ class TestInstrumentAbstraction:
         aliases = snap.pv_aliases()
         assert "pressure" in aliases
         assert "temperature" in aliases
-        assert "run_number" in aliases
+        # run_number, run_state, items removed (internal / testing only)
+        assert "run_number" not in aliases
         assert "pvs" in aliases["pressure"]
         assert any("BL3" in pv for pv in aliases["pressure"]["pvs"])
 
