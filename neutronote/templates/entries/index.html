@@ -339,6 +339,11 @@
                         <input type="datetime-local" id="pvlog-end" name="pv_end" value="{{ config.experiment_end.strftime('%Y-%m-%dT08:00') if config.experiment_end else '' }}">
                     </div>
                 </div>
+                <div class="pvlog-quick-range">
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="setPVLogRange('today')">Today</button>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="setPVLogRange('yesterday')">Yesterday</button>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="setPVLogRange('week')">Past 7 days</button>
+                </div>
             </div>
 
             <div class="form-group">
@@ -351,6 +356,33 @@
                     </label>
                     {% endfor %}
                 </div>
+            </div>
+
+            <!-- Custom PV entry -->
+            <div class="form-group">
+                <label class="pvlog-alias-checkbox" style="margin-bottom: 0.4rem;">
+                    <input type="checkbox" id="pvlog-custom-toggle" onchange="toggleCustomPV()">
+                    <strong>Custom PV</strong> <small class="form-hint" style="margin-left:0.25rem;">(manually specify a PV name)</small>
+                </label>
+                <div id="pvlog-custom-area" style="display:none;">
+                    <div class="custom-pv-input-row">
+                        <span class="custom-pv-prefix">{{ pv_prefix }}</span>
+                        <div class="custom-pv-input-wrapper">
+                            <input type="text" id="pvlog-custom-input"
+                                   placeholder="e.g., Teledyne1:Pressure"
+                                   autocomplete="off"
+                                   oninput="onCustomPVInput(this)">
+                            <div class="custom-pv-autocomplete" id="pvlog-custom-autocomplete"></div>
+                        </div>
+                    </div>
+                    <div class="custom-pv-pills" id="pvlog-custom-pills">
+                        <!-- Added custom PVs appear here as removable pills -->
+                    </div>
+                    <small class="form-hint">Type to search Oracle — select from suggestions to avoid typos.</small>
+                </div>
+            </div>
+
+            <div class="form-group">
                 <button type="button" class="btn btn-primary" onclick="resolveAliases()" id="pvlog-resolve-btn" style="width:100%; margin-top:0.4rem;">
                     🔍 Fetch &amp; Plot
                 </button>
@@ -393,6 +425,10 @@
             </div>
         </form>
         {% endif %}
+
+        <!-- Spacer pushes kernel panel to bottom of column -->
+        <div class="create-panel-spacer"></div>
+        <hr class="create-panel-separator">
 
         <!-- Kernel Status Panel (always visible) -->
         <div class="kernel-panel">
@@ -4259,14 +4295,147 @@ function pvShortLabel(pvName) {
     return parts.length >= 2 ? parts[parts.length - 2] : pvName;
 }
 
+// ============ PV Log Quick-Range Buttons ============
+
+function setPVLogRange(preset) {
+    const startEl = document.getElementById('pvlog-start');
+    const endEl = document.getElementById('pvlog-end');
+    const now = new Date();
+    let start, end;
+
+    if (preset === 'today') {
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0);
+        end = now;
+    } else if (preset === 'yesterday') {
+        const y = new Date(now);
+        y.setDate(y.getDate() - 1);
+        start = new Date(y.getFullYear(), y.getMonth(), y.getDate(), 0, 0);
+        end = new Date(y.getFullYear(), y.getMonth(), y.getDate(), 23, 59);
+    } else if (preset === 'week') {
+        start = new Date(now);
+        start.setDate(start.getDate() - 7);
+        start.setHours(0, 0, 0, 0);
+        end = now;
+    }
+
+    // Format as YYYY-MM-DDTHH:MM for datetime-local input
+    function fmt(d) {
+        const pad = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    startEl.value = fmt(start);
+    endEl.value = fmt(end);
+}
+
+// ============ Custom PV Autocomplete ============
+
+const PV_PREFIX = {{ pv_prefix | tojson }};
+let _customPVs = [];          // list of full PV names added by user
+let _pvSearchTimer = null;    // debounce timer for autocomplete
+
+function toggleCustomPV() {
+    const area = document.getElementById('pvlog-custom-area');
+    const toggle = document.getElementById('pvlog-custom-toggle');
+    area.style.display = toggle.checked ? 'block' : 'none';
+    if (!toggle.checked) {
+        // Clear custom PVs when unchecked
+        _customPVs = [];
+        document.getElementById('pvlog-custom-pills').innerHTML = '';
+        document.getElementById('pvlog-custom-input').value = '';
+        document.getElementById('pvlog-custom-autocomplete').innerHTML = '';
+    }
+}
+
+function onCustomPVInput(input) {
+    clearTimeout(_pvSearchTimer);
+    const suffix = input.value.trim();
+    const dropdown = document.getElementById('pvlog-custom-autocomplete');
+
+    if (suffix.length < 2) {
+        dropdown.innerHTML = '';
+        dropdown.style.display = 'none';
+        return;
+    }
+
+    _pvSearchTimer = setTimeout(() => {
+        // Search Oracle with the full prefix + typed suffix
+        const pattern = PV_PREFIX + suffix;
+        fetch(`/entries/api/pvlog/search?pattern=${encodeURIComponent(pattern)}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.error || !data.results || data.results.length === 0) {
+                    dropdown.innerHTML = '<div class="custom-pv-no-results">No matching PVs found</div>';
+                    dropdown.style.display = 'block';
+                    return;
+                }
+                // Filter out PVs already added
+                const available = data.results.filter(pv => !_customPVs.includes(pv));
+                if (available.length === 0) {
+                    dropdown.innerHTML = '<div class="custom-pv-no-results">All matches already added</div>';
+                    dropdown.style.display = 'block';
+                    return;
+                }
+                dropdown.innerHTML = available.map(pv => {
+                    // Highlight the suffix portion after the prefix
+                    const display = pv.startsWith(PV_PREFIX)
+                        ? `<span class="custom-pv-prefix-dim">${PV_PREFIX}</span>${pv.slice(PV_PREFIX.length)}`
+                        : pv;
+                    return `<div class="custom-pv-option" onmousedown="addCustomPV('${pv.replace(/'/g, "\\'")}')">${display}</div>`;
+                }).join('');
+                dropdown.style.display = 'block';
+            })
+            .catch(err => {
+                console.error('PV search error:', err);
+                dropdown.innerHTML = '<div class="custom-pv-no-results">Search error</div>';
+                dropdown.style.display = 'block';
+            });
+    }, 300);  // 300ms debounce
+}
+
+function addCustomPV(pvName) {
+    if (_customPVs.includes(pvName)) return;
+    _customPVs.push(pvName);
+    renderCustomPVPills();
+    // Clear input and dropdown
+    document.getElementById('pvlog-custom-input').value = '';
+    document.getElementById('pvlog-custom-autocomplete').style.display = 'none';
+}
+
+function removeCustomPV(pvName) {
+    _customPVs = _customPVs.filter(pv => pv !== pvName);
+    renderCustomPVPills();
+}
+
+function renderCustomPVPills() {
+    const container = document.getElementById('pvlog-custom-pills');
+    container.innerHTML = _customPVs.map(pv => {
+        const short = pv.startsWith(PV_PREFIX) ? pv.slice(PV_PREFIX.length) : pv;
+        return `<span class="pv-chip pv-chip-custom">
+            <span class="custom-pv-prefix-dim">${PV_PREFIX}</span>${short}
+            <button type="button" class="pv-chip-remove" onclick="removeCustomPV('${pv.replace(/'/g, "\\'")}')">&times;</button>
+        </span>`;
+    }).join('');
+}
+
+// Close autocomplete dropdown when clicking elsewhere
+document.addEventListener('click', function(e) {
+    const dropdown = document.getElementById('pvlog-custom-autocomplete');
+    const input = document.getElementById('pvlog-custom-input');
+    if (dropdown && !dropdown.contains(e.target) && e.target !== input) {
+        dropdown.style.display = 'none';
+    }
+});
+
 /**
  * Resolve multiple aliases: fetch all checked categories, merge traces + runs, then plot.
  */
 function resolveAliases() {
     const checkboxes = document.querySelectorAll('#pvlog-alias-checkboxes input[type="checkbox"]:checked');
     const aliases = Array.from(checkboxes).map(cb => cb.value);
-    if (aliases.length === 0) {
-        document.getElementById('pvlog-status').textContent = 'Please select at least one category.';
+    const customPVs = _customPVs.slice();  // snapshot of user-added PVs
+
+    if (aliases.length === 0 && customPVs.length === 0) {
+        document.getElementById('pvlog-status').textContent = 'Please select at least one category or add a custom PV.';
         return;
     }
 
@@ -4274,25 +4443,72 @@ function resolveAliases() {
     const status = document.getElementById('pvlog-status');
     btn.disabled = true;
     btn.textContent = '⏳ Fetching…';
-    status.textContent = `Querying Oracle for ${aliases.length} category(s)…`;
 
-    const start = document.getElementById('pvlog-start')?.value || '';
-    const end   = document.getElementById('pvlog-end')?.value || '';
+    const parts = [];
+    if (aliases.length) parts.push(`${aliases.length} category(s)`);
+    if (customPVs.length) parts.push(`${customPVs.length} custom PV(s)`);
+    status.textContent = `Querying Oracle for ${parts.join(' + ')}…`;
+
+    let start = document.getElementById('pvlog-start')?.value || '';
+    let end   = document.getElementById('pvlog-end')?.value || '';
+
+    // Auto-fill empty fields with "today" range
+    if (!start && !end) {
+        setPVLogRange('today');
+        start = document.getElementById('pvlog-start').value;
+        end   = document.getElementById('pvlog-end').value;
+    } else if (!start) {
+        // Missing start: default to same day at 00:00
+        start = end.slice(0, 10) + 'T00:00';
+        document.getElementById('pvlog-start').value = start;
+    } else if (!end) {
+        // Missing end: default to same day at 23:59
+        end = start.slice(0, 10) + 'T23:59';
+        document.getElementById('pvlog-end').value = end;
+    }
+
+    // If start and end are identical (same datetime), expand to full day
+    if (start === end) {
+        start = start.slice(0, 10) + 'T00:00';
+        end   = end.slice(0, 10) + 'T23:59';
+        document.getElementById('pvlog-start').value = start;
+        document.getElementById('pvlog-end').value = end;
+    }
 
     // Fire parallel requests for each alias
-    const requests = aliases.map(alias => {
+    const aliasRequests = aliases.map(alias => {
         const params = new URLSearchParams({alias});
         if (start) params.set('start', start);
         if (end)   params.set('end', end);
         return fetch(`/entries/api/pvlog/resolve?${params.toString()}`).then(r => r.json());
     });
 
-    Promise.all(requests)
+    // Fire a single request for all custom PVs (using /api/pvlog/query)
+    let customRequest = null;
+    if (customPVs.length > 0) {
+        const params = new URLSearchParams();
+        customPVs.forEach(pv => params.append('pv', pv));
+        if (start) params.set('start', start);
+        if (end)   params.set('end', end);
+        customRequest = fetch(`/entries/api/pvlog/query?${params.toString()}`).then(r => r.json());
+    }
+
+    const allRequests = customRequest
+        ? [...aliasRequests, customRequest]
+        : aliasRequests;
+
+    Promise.all(allRequests)
         .then(results => {
+            // Split results: alias results first, custom result last (if present)
+            const aliasResults = customRequest ? results.slice(0, -1) : results;
+            const customResult = customRequest ? results[results.length - 1] : null;
+
             // Check for errors
-            const errors = results.filter(r => r.error);
-            if (errors.length === results.length) {
-                status.textContent = `Error: ${errors[0].error}`;
+            const aliasErrors = aliasResults.filter(r => r.error);
+            const customError = customResult && customResult.error;
+            if (aliasErrors.length === aliasResults.length && (!customResult || customError)) {
+                const errMsg = aliasErrors.length > 0 ? aliasErrors[0].error : customResult.error;
+                status.textContent = `Error: ${errMsg}`;
                 return;
             }
 
@@ -4303,7 +4519,7 @@ function resolveAliases() {
             let   mergedStart = null, mergedEnd = null;
             const seenRuns = new Set();
 
-            results.forEach(data => {
+            aliasResults.forEach(data => {
                 if (data.error) return;
                 if (data.traces) allTraces.push(...data.traces);
                 if (data.skipped_details) allSkippedDetails.push(...data.skipped_details);
@@ -4317,10 +4533,25 @@ function resolveAliases() {
                     }
                 });
             });
+
+            // Merge custom PV traces
+            if (customResult && !customResult.error && customResult.traces) {
+                customResult.traces.forEach(t => {
+                    // Use short label as alias for custom PVs
+                    if (!t.name || t.name === t.pv) {
+                        t.name = pvShortLabel(t.pv);
+                    }
+                    allTraces.push(t);
+                });
+                if (customResult.start && (!mergedStart || customResult.start < mergedStart)) mergedStart = customResult.start;
+                if (customResult.end && (!mergedEnd || customResult.end > mergedEnd)) mergedEnd = customResult.end;
+            }
+
             allRuns.sort((a, b) => a.start - b.start);
 
             const merged = {
                 aliases: aliases,
+                customPVs: customPVs,
                 traces: allTraces,
                 skipped_details: allSkippedDetails,
                 runs: allRuns,
@@ -4332,7 +4563,11 @@ function resolveAliases() {
             const infoEl = document.getElementById('pvlog-resolve-info');
             let infoHtml = '<div class="pvlog-info-chips">';
             merged.traces.forEach(t => {
-                infoHtml += `<span class="pv-chip pv-chip-active">${t.pv} <small>(${t.count.toLocaleString()} pts)</small></span>`;
+                if (t.count > 0) {
+                    infoHtml += `<span class="pv-chip pv-chip-active">${t.pv} <small>(${t.count.toLocaleString()} pts)</small></span>`;
+                } else {
+                    infoHtml += `<span class="pv-chip pv-chip-skipped" title="No data in time range">${t.pv} <small>(no data)</small></span>`;
+                }
             });
             merged.skipped_details.forEach(s => {
                 const shortPv = pvShortLabel(s.pv);
@@ -4348,11 +4583,12 @@ function resolveAliases() {
             infoEl.innerHTML = infoHtml;
             infoEl.style.display = 'block';
 
-            // Auto-fill title from selected labels
+            // Auto-fill title from selected labels + custom PVs
             const titleEl = document.getElementById('pvlog-title');
             if (!titleEl.value) {
                 const labels = Array.from(checkboxes).map(cb => cb.parentElement.textContent.trim());
-                titleEl.value = labels.join(' + ');
+                const customLabels = customPVs.map(pv => pvShortLabel(pv));
+                titleEl.value = [...labels, ...customLabels].join(' + ');
             }
 
             renderPVLogPlot(merged);
@@ -4380,6 +4616,22 @@ function renderPVLogPlot(data) {
 
     if (!data.traces || data.traces.length === 0) {
         status.textContent = 'No active PVs found for the selected categories.';
+        return;
+    }
+
+    // Filter out traces with zero data points
+    const emptyTraces = data.traces.filter(t => !t.x || t.x.length === 0 || t.count === 0);
+    data.traces = data.traces.filter(t => t.x && t.x.length > 0 && t.count > 0);
+
+    if (data.traces.length === 0) {
+        const pvNames = emptyTraces.map(t => t.pv || t.name).join(', ');
+        const startEl = document.getElementById('pvlog-start');
+        const endEl   = document.getElementById('pvlog-end');
+        const rangeHint = (startEl && startEl.value && endEl && endEl.value)
+            ? ` between ${startEl.value.replace('T', ' ')} and ${endEl.value.replace('T', ' ')}`
+            : '';
+        status.textContent = `No data recorded for ${pvNames}${rangeHint}. Try a wider time range.`;
+        document.getElementById('pvlog-chart-container').style.display = 'none';
         return;
     }
 
@@ -4472,7 +4724,7 @@ function buildPVLogPlotConfig(data, opts) {
         type: 'scatter',
         mode: 'lines',
         connectgaps: false,
-        line: {color: TRACE_COLORS[i % TRACE_COLORS.length], width: 1.5},
+        line: {color: TRACE_COLORS[i % TRACE_COLORS.length], width: 1.5, shape: 'hv'},
         yaxis: i === 0 ? 'y' : 'y' + (i + 1),
     }));
 
@@ -5265,6 +5517,8 @@ document.addEventListener('DOMContentLoaded', function() {
     renderTagFilterBar();
     // Initialize create-time tag inputs
     initCreateTagInputs();
+    // Sync custom PV area visibility with checkbox (browser may restore checked state)
+    if (typeof toggleCustomPV === 'function') toggleCustomPV();
 });
 
 </script>

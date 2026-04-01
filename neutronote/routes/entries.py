@@ -76,6 +76,7 @@ def index():
         entries=entries,
         config=config,
         aliases=pv_aliases,
+        pv_prefix=instrument.pv_prefix(),
     )
 
 

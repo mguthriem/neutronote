@@ -140,6 +140,20 @@ a:hover {
     border-right: none;
     overflow-y: auto;
     flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Push the kernel panel to the bottom of the create-panel column */
+.create-panel-spacer {
+    flex: 1 1 auto;
+    min-height: 1rem;
+}
+
+.create-panel-separator {
+    border: none;
+    border-top: 1px solid var(--color-border, #dee2e6);
+    margin: 1rem 0 0.75rem 0;
 }
 
 .create-panel h2 {
@@ -2238,7 +2252,7 @@ pre.code-input {
    ============================================ */
 
 .kernel-panel {
-    margin-top: 1rem;
+    flex-shrink: 0;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
@@ -2584,6 +2598,28 @@ pre.code-input {
     box-sizing: border-box;
 }
 
+.pvlog-quick-range {
+    display: flex;
+    gap: 0.35rem;
+    margin-top: 0.4rem;
+}
+
+.pvlog-quick-range .btn-sm {
+    font-size: 0.75rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    background: var(--color-surface, #fff);
+    border: 1px solid var(--color-border, #dee2e6);
+    color: var(--color-text, #333);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.pvlog-quick-range .btn-sm:hover {
+    background: var(--color-primary-light, #e3f2fd);
+    border-color: var(--color-primary, #1976d2);
+}
+
 .pv-search-container {
     display: flex;
     gap: 0.5rem;
@@ -2760,6 +2796,106 @@ pre.code-input {
     border-color: #ccc !important;
     text-decoration: line-through;
     opacity: 0.7;
+}
+
+/* Custom PV chip (purple accent to distinguish from alias-resolved) */
+.pv-chip-custom {
+    background: #f3e8ff !important;
+    color: #6b21a8 !important;
+    border-color: #c084fc !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+/* ============================================
+   Custom PV Input & Autocomplete
+   ============================================ */
+.custom-pv-input-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    border: 1px solid var(--color-border, #dee2e6);
+    border-radius: 6px;
+    background: #fff;
+}
+
+.custom-pv-prefix {
+    background: var(--color-surface-alt, #f0f0f0);
+    color: var(--color-text-muted, #666);
+    padding: 0.45rem 0.5rem;
+    font-family: monospace;
+    font-size: 0.88rem;
+    white-space: nowrap;
+    border-right: 1px solid var(--color-border, #dee2e6);
+    border-radius: 6px 0 0 6px;
+    user-select: none;
+}
+
+.custom-pv-prefix-dim {
+    color: var(--color-text-muted, #999);
+    font-size: 0.85em;
+}
+
+.custom-pv-input-wrapper {
+    flex: 1;
+    position: relative;
+}
+
+.custom-pv-input-wrapper input {
+    width: 100%;
+    border: none;
+    outline: none;
+    padding: 0.45rem 0.5rem;
+    font-family: monospace;
+    font-size: 0.88rem;
+    background: transparent;
+}
+
+.custom-pv-autocomplete {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    max-height: 200px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid var(--color-border, #dee2e6);
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    z-index: 100;
+}
+
+.custom-pv-option {
+    padding: 0.4rem 0.6rem;
+    font-family: monospace;
+    font-size: 0.85rem;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.custom-pv-option:last-child {
+    border-bottom: none;
+}
+
+.custom-pv-option:hover {
+    background: #e8f0fe;
+}
+
+.custom-pv-no-results {
+    padding: 0.5rem 0.6rem;
+    color: var(--color-text-muted, #999);
+    font-size: 0.85rem;
+    font-style: italic;
+}
+
+.custom-pv-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.4rem;
 }
 
 /* ============================================

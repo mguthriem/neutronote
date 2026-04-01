@@ -48,7 +48,7 @@
                 type: 'scatter',
                 mode: 'lines',
                 connectgaps: false,
-                line: {color: TRACE_COLORS[i % TRACE_COLORS.length], width: 1.5},
+                line: {color: TRACE_COLORS[i % TRACE_COLORS.length], width: 1.5, shape: 'hv'},
                 yaxis: i === 0 ? 'y' : 'y' + (i + 1),
             }));
 

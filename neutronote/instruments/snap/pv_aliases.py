@@ -32,25 +32,4 @@ SNAP_PV_ALIASES: dict[str, dict] = {
             "max_valid": None,
         },
     },
-    "run_number": {
-        "label": "Run Number",
-        "units": "",
-        "pvs": [
-            "BL3:CS:RunControl:LastRunNumber",
-        ],
-    },
-    "run_state": {
-        "label": "Run State",
-        "units": "",
-        "pvs": [
-            "BL3:CS:RunControl:StateEnum",
-        ],
-    },
-    "items": {
-        "label": "ITEMS Proposal",
-        "units": "",
-        "pvs": [
-            "BL3:CS:ITEMS",
-        ],
-    },
 }
