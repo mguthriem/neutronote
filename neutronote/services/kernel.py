@@ -81,6 +81,15 @@ class WorkspaceInfo:
     num_spectra: int = 0
     num_bins: int = 0
     memory_mb: float = 0.0
+    x_unit: str = ""
+    x_unit_label: str = ""
+    y_unit: str = ""
+    distribution: bool = False
+    histogram: bool = False
+    common_bins: bool = True
+    instrument: str = ""
+    run_number: str = ""
+    title: str = ""
 
     def to_dict(self):
         return {
@@ -89,6 +98,15 @@ class WorkspaceInfo:
             "num_spectra": self.num_spectra,
             "num_bins": self.num_bins,
             "memory_mb": round(self.memory_mb, 2),
+            "x_unit": self.x_unit,
+            "x_unit_label": self.x_unit_label,
+            "y_unit": self.y_unit,
+            "distribution": self.distribution,
+            "histogram": self.histogram,
+            "common_bins": self.common_bins,
+            "instrument": self.instrument,
+            "run_number": self.run_number,
+            "title": self.title,
         }
 
 
@@ -253,7 +271,11 @@ if MANTID_AVAILABLE:
 _baseline_keys = set(_user_namespace.keys())
 
 def get_workspace_info():
-    """Get info about all workspaces in ADS."""
+    """Get info about all workspaces in ADS.
+    
+    Returns a list of dicts with fields matching what Mantid Workbench
+    shows when a workspace node is expanded in the workspace tree.
+    """
     if not MANTID_AVAILABLE or ADS is None:
         return []
     
@@ -268,15 +290,73 @@ def get_workspace_info():
                     'num_spectra': 0,
                     'num_bins': 0,
                     'memory_mb': 0.0,
+                    'x_unit': '',
+                    'x_unit_label': '',
+                    'y_unit': '',
+                    'distribution': False,
+                    'histogram': False,
+                    'common_bins': True,
+                    'instrument': '',
+                    'run_number': '',
+                    'title': '',
                 }
                 
-                # Try to get dimensions
+                # Dimensions
                 if hasattr(ws, 'getNumberHistograms'):
                     info['num_spectra'] = ws.getNumberHistograms()
                 if hasattr(ws, 'blocksize'):
-                    info['num_bins'] = ws.blocksize()
+                    try:
+                        info['num_bins'] = ws.blocksize()
+                    except Exception:
+                        info['num_bins'] = 0
                 if hasattr(ws, 'getMemorySize'):
                     info['memory_mb'] = ws.getMemorySize() / (1024 * 1024)
+                
+                # Axis units
+                try:
+                    ax0 = ws.getAxis(0)
+                    info['x_unit'] = ax0.getUnit().caption()
+                    info['x_unit_label'] = ax0.getUnit().label()
+                except Exception:
+                    pass
+                try:
+                    info['y_unit'] = ws.YUnitLabel() if hasattr(ws, 'YUnitLabel') else ''
+                except Exception:
+                    pass
+                
+                # Distribution / histogram / common bins flags
+                try:
+                    info['distribution'] = ws.isDistribution()
+                except Exception:
+                    pass
+                try:
+                    if hasattr(ws, 'isHistogramData') and info['num_spectra'] > 0:
+                        info['histogram'] = ws.isHistogramData()
+                except Exception:
+                    pass
+                try:
+                    if hasattr(ws, 'isCommonBins'):
+                        info['common_bins'] = ws.isCommonBins()
+                except Exception:
+                    pass
+                
+                # Run metadata
+                try:
+                    run = ws.getRun()
+                    if run.hasProperty('run_number'):
+                        info['run_number'] = str(run.getProperty('run_number').value)
+                except Exception:
+                    pass
+                try:
+                    info['title'] = ws.getTitle()
+                except Exception:
+                    pass
+                try:
+                    inst = ws.getInstrument()
+                    if inst:
+                        info['instrument'] = inst.getName()
+                except Exception:
+                    pass
                 
                 workspaces.append(info)
             except Exception:
@@ -480,14 +560,20 @@ def extract_spectrum_data(ws_name, spectra, max_points=5000):
 def extract_colorfill_data(ws_name, max_spectra=500, max_bins=2000):
     """Extract 2D array for colorfill plot.
     
-    Returns dict with z (2D array), x_edges, y (spectrum indices),
+    Returns dict with z (2D array), x (common bin centres), y (spectrum indices),
     and axis labels.
+
+    If the workspace has non-uniform X axes (e.g. after ConvertUnits to
+    dSpacing), the data is rebinned onto a common X grid so Plotly's
+    heatmap can render it correctly.
     """
     if not MANTID_AVAILABLE or ADS is None:
         return {'success': False, 'error': 'Mantid not available'}
     if not ADS.doesExist(ws_name):
         return {'success': False, 'error': f'Workspace "{ws_name}" not found'}
     try:
+        import numpy as np
+
         ws = ADS.retrieve(ws_name)
         n_hist = ws.getNumberHistograms()
         n_bins = ws.blocksize()
@@ -497,23 +583,54 @@ def extract_colorfill_data(ws_name, max_spectra=500, max_bins=2000):
         x_unit_label = ws.getAxis(0).getUnit().label()
         y_unit = 'Spectrum Index'
         
-        # Downsample if needed
+        # Downsample spectra if needed
         spec_step = max(1, n_hist // max_spectra)
-        bin_step = max(1, n_bins // max_bins)
-        
         spec_indices = list(range(0, n_hist, spec_step))
-        
-        # Get x axis (bin centres from first spectrum)
-        x0 = ws.readX(0)
-        if len(x0) == n_bins + 1:
-            x = [(x0[j] + x0[j+1]) / 2.0 for j in range(0, n_bins, bin_step)]
+
+        common_bins = ws.isCommonBins()
+
+        if common_bins:
+            # ---- Fast path: all spectra share the same X axis ----
+            bin_step = max(1, n_bins // max_bins)
+            x0 = ws.readX(0)
+            if len(x0) == n_bins + 1:
+                x = [(x0[j] + x0[j+1]) / 2.0 for j in range(0, n_bins, bin_step)]
+            else:
+                x = list(x0[::bin_step])
+
+            z = []
+            for si in spec_indices:
+                row = list(ws.readY(si)[::bin_step])
+                z.append(row)
         else:
-            x = list(x0[::bin_step])
-        
-        z = []
-        for si in spec_indices:
-            row = list(ws.readY(si)[::bin_step])
-            z.append(row)
+            # ---- Ragged bins: rebin onto a common X grid ----
+            # 1. Find global X range from sampled spectra
+            x_min = float('inf')
+            x_max = float('-inf')
+            for si in spec_indices:
+                xi = ws.readX(si)
+                lo = float(xi[0])
+                hi = float(xi[-1])
+                if lo < x_min:
+                    x_min = lo
+                if hi > x_max:
+                    x_max = hi
+
+            # 2. Build common bin-centre grid
+            n_common = min(n_bins, max_bins)
+            x = np.linspace(x_min, x_max, n_common).tolist()
+
+            # 3. For each spectrum, interpolate Y onto the common grid
+            z = []
+            for si in spec_indices:
+                xi = np.array(ws.readX(si))
+                yi = np.array(ws.readY(si))
+                # Compute bin centres if histogram
+                if len(xi) == len(yi) + 1:
+                    xi = (xi[:-1] + xi[1:]) / 2.0
+                # Interpolate; values outside range become 0
+                row = np.interp(x, xi, yi, left=0.0, right=0.0)
+                z.append(row.tolist())
         
         return {
             'success': True,
@@ -525,6 +642,7 @@ def extract_colorfill_data(ws_name, max_spectra=500, max_bins=2000):
             'y_label': y_unit,
             'num_spectra': n_hist,
             'num_bins': n_bins,
+            'common_bins': common_bins,
         }
     except Exception as e:
         return {'success': False, 'error': str(e)}
@@ -942,6 +1060,15 @@ while True:
                     num_spectra=ws_data.get("num_spectra", 0),
                     num_bins=ws_data.get("num_bins", 0),
                     memory_mb=ws_data.get("memory_mb", 0.0),
+                    x_unit=ws_data.get("x_unit", ""),
+                    x_unit_label=ws_data.get("x_unit_label", ""),
+                    y_unit=ws_data.get("y_unit", ""),
+                    distribution=ws_data.get("distribution", False),
+                    histogram=ws_data.get("histogram", False),
+                    common_bins=ws_data.get("common_bins", True),
+                    instrument=ws_data.get("instrument", ""),
+                    run_number=ws_data.get("run_number", ""),
+                    title=ws_data.get("title", ""),
                 )
             )
 

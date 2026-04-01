@@ -3051,16 +3051,54 @@ async function refreshWorkspaces() {
         if (data.workspaces.length === 0) {
             list.innerHTML = '<div class="workspace-empty">No workspaces loaded</div>';
         } else {
-            list.innerHTML = data.workspaces.map(ws => `
-                <div class="workspace-item" oncontextmenu="showWsContextMenu(event, '${ws.name}', ${ws.num_spectra})" title="Right-click for actions">
-                    <span class="workspace-icon">📦</span>
-                    <span class="workspace-name" onclick="insertWorkspaceName('${ws.name}')">${ws.name}</span>
-                    <span class="workspace-info">${ws.type} · ${ws.num_spectra} spec · ${ws.memory_mb.toFixed(1)} MB</span>
-                </div>
-            `).join('');
+            list.innerHTML = data.workspaces.map((ws, idx) => {
+                const uid = `ws-detail-${idx}`;
+                const xUnit = ws.x_unit ? `${ws.x_unit}${ws.x_unit_label ? ' (' + ws.x_unit_label + ')' : ''}` : '—';
+                const yUnit = ws.y_unit || '—';
+                const hist = ws.histogram ? 'Histogram' : 'Point data';
+                const dist = ws.distribution ? 'Yes' : 'No';
+                const commonBins = ws.common_bins ? 'Yes' : 'No';
+                const runNum = ws.run_number || '—';
+                const wsTitle = ws.title || '—';
+                const instrument = ws.instrument || '—';
+                return `
+                <div class="workspace-item" oncontextmenu="showWsContextMenu(event, '${ws.name}', ${ws.num_spectra})" title="Click to expand · Right-click for actions">
+                    <div class="workspace-header" onclick="toggleWsDetail('${uid}')">
+                        <span class="workspace-expand-icon" id="${uid}-icon">▶</span>
+                        <span class="workspace-icon">📦</span>
+                        <span class="workspace-name">${ws.name}</span>
+                        <span class="workspace-info">${ws.type} · ${ws.num_spectra} spec · ${ws.memory_mb.toFixed(1)} MB</span>
+                    </div>
+                    <div class="workspace-detail" id="${uid}" style="display:none">
+                        <table class="ws-meta-table">
+                            <tr><td>X unit</td><td>${xUnit}</td></tr>
+                            <tr><td>Y unit</td><td>${yUnit}</td></tr>
+                            <tr><td>Bins</td><td>${ws.num_bins} · ${hist}</td></tr>
+                            <tr><td>Common bins</td><td>${commonBins}</td></tr>
+                            <tr><td>Distribution</td><td>${dist}</td></tr>
+                            <tr><td>Instrument</td><td>${instrument}</td></tr>
+                            <tr><td>Run number</td><td>${runNum}</td></tr>
+                            <tr><td>Title</td><td>${wsTitle}</td></tr>
+                        </table>
+                    </div>
+                </div>`;
+            }).join('');
         }
     } catch (err) {
         console.error('Failed to refresh workspaces:', err);
+    }
+}
+
+function toggleWsDetail(uid) {
+    const el = document.getElementById(uid);
+    const icon = document.getElementById(uid + '-icon');
+    if (!el) return;
+    if (el.style.display === 'none') {
+        el.style.display = 'block';
+        if (icon) icon.textContent = '▼';
+    } else {
+        el.style.display = 'none';
+        if (icon) icon.textContent = '▶';
     }
 }
 

@@ -2308,15 +2308,31 @@ pre.code-input {
 
 .workspace-item {
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.4rem 0.5rem;
+    flex-direction: column;
+    padding: 0;
     border-radius: 4px;
     font-size: 0.8rem;
 }
 
-.workspace-item:hover {
+.workspace-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.5rem;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.workspace-item:hover > .workspace-header {
     background: var(--color-bg);
+}
+
+.workspace-expand-icon {
+    font-size: 0.55rem;
+    color: var(--color-text-muted);
+    flex-shrink: 0;
+    width: 0.8em;
+    text-align: center;
 }
 
 .workspace-icon {
@@ -2327,7 +2343,6 @@ pre.code-input {
     font-family: var(--font-mono);
     font-weight: 500;
     flex-shrink: 0;
-    cursor: pointer;
 }
 
 .workspace-name:hover {
@@ -2342,6 +2357,30 @@ pre.code-input {
     text-overflow: ellipsis;
     white-space: nowrap;
     flex: 1;
+}
+
+.workspace-detail {
+    padding: 0.2rem 0.5rem 0.4rem 2rem;
+}
+
+.ws-meta-table {
+    font-size: 0.7rem;
+    border-collapse: collapse;
+    width: 100%;
+}
+.ws-meta-table td {
+    padding: 0.1rem 0.5rem 0.1rem 0;
+    vertical-align: top;
+}
+.ws-meta-table td:first-child {
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    font-weight: 500;
+    width: 90px;
+}
+.ws-meta-table td:last-child {
+    font-family: var(--font-mono);
+    word-break: break-all;
 }
 
 .workspace-delete-btn {
