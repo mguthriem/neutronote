@@ -65,7 +65,7 @@
             {% for etype in enabled_types %}
             <button class="tab{% if loop.first %} active{% endif %}"
                     data-type="{{ etype }}"
-                    {% if etype == 'header' and not config.is_configured %}disabled title="Configure IPTS first"{% endif %}
+                    {% if false and etype == 'header' and not config.is_configured %}disabled title="Configure IPTS first"{% endif %}
                     {% if etype == 'data' and not config.is_configured %}disabled title="Configure IPTS first"{% endif %}
                     {% if etype == 'pvlog' and not config.is_configured %}disabled title="Configure IPTS first"{% endif %}
             >{{ instrument.ENTRY_TYPE_LABELS.get(etype, etype|capitalize) }}</button>
@@ -97,16 +97,43 @@
         </form>
         {% endif %}
 
-        <!-- Run Header entry form -->
+        <!-- Header entry form (Section heading or Run header) -->
         {% if 'header' in enabled_types %}
         <form id="header-form" class="entry-form" action="{{ url_for('entries.create_header') }}" method="post">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            {% if config.is_configured %}
-            <div class="form-group">
-                <label for="run_number">Run Number</label>
-                <input type="number" id="run_number" name="run_number" placeholder="e.g., 67890" required min="1">
-                <small class="form-hint">Fetch run metadata from {{ config.ipts }}</small>
+
+            <!-- Header sub-type selector -->
+            <div class="form-group header-kind-selector">
+                <label class="radio-label">
+                    <input type="radio" name="header_kind" value="section" checked
+                           onchange="toggleHeaderKind()">
+                    Section Heading
+                </label>
+                <label class="radio-label">
+                    <input type="radio" name="header_kind" value="run"
+                           onchange="toggleHeaderKind()">
+                    Run Header
+                </label>
             </div>
+
+            <!-- Section heading fields -->
+            <div id="header-section-fields">
+                <div class="form-group">
+                    <label for="section_title">Heading</label>
+                    <input type="text" id="section_title" name="section_title"
+                           placeholder="e.g., Sample preparation, Calibration runs…" required>
+                </div>
+            </div>
+
+            <!-- Run header fields (hidden by default) -->
+            <div id="header-run-fields" style="display:none;">
+                <div class="form-group">
+                    <label for="run_number">Run Number</label>
+                    <input type="number" id="run_number" name="run_number" placeholder="e.g., 67890" min="1">
+                    <small class="form-hint">Fetch run metadata from {{ config.ipts }}</small>
+                </div>
+            </div>
+
             <div class="form-group create-tags-group">
                 <label>Tags (optional)</label>
                 <div class="create-tags-input" data-form="header-form">
@@ -116,10 +143,7 @@
                     <div class="create-tag-autocomplete"></div>
                 </div>
             </div>
-            <button type="submit" class="btn btn-primary">Fetch Run Header</button>
-            {% else %}
-            <p class="placeholder-text">Please configure the notebook IPTS first.</p>
-            {% endif %}
+            <button type="submit" class="btn btn-primary" id="header-submit-btn">Add Section Heading</button>
         </form>
         {% endif %}
 
@@ -821,6 +845,32 @@ if (_scrollToNewest) {
 function _flagNewEntry() {
     sessionStorage.setItem('scrollToNewest', 'true');
     sessionStorage.setItem('timelineScrollTop', String(timeline.scrollTop));
+}
+
+// =============================================================================
+// Header kind toggle (Section Heading vs Run Header)
+// =============================================================================
+function toggleHeaderKind() {
+    const kind = document.querySelector('input[name="header_kind"]:checked')?.value || 'section';
+    const sectionFields = document.getElementById('header-section-fields');
+    const runFields = document.getElementById('header-run-fields');
+    const submitBtn = document.getElementById('header-submit-btn');
+    const sectionInput = document.getElementById('section_title');
+    const runInput = document.getElementById('run_number');
+
+    if (kind === 'section') {
+        sectionFields.style.display = '';
+        runFields.style.display = 'none';
+        submitBtn.textContent = 'Add Section Heading';
+        if (sectionInput) sectionInput.required = true;
+        if (runInput) runInput.required = false;
+    } else {
+        sectionFields.style.display = 'none';
+        runFields.style.display = '';
+        submitBtn.textContent = 'Fetch Run Header';
+        if (sectionInput) sectionInput.required = false;
+        if (runInput) runInput.required = true;
+    }
 }
 
 // Flag form submissions so the page scrolls to the new entry after redirect

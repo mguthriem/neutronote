@@ -177,12 +177,29 @@ def setup_notebook():
 
 @bp.route("/create/header", methods=["POST"])
 def create_header():
-    """Create a new run header entry from a run number."""
-    config = NotebookConfig.get_config()
+    """Create a header entry – either a section heading or a run header."""
+    header_kind = request.form.get("header_kind", "section").strip()
 
-    if not config.is_configured:
-        flash("Please configure the notebook IPTS first.", "error")
-        return redirect(url_for("entries.index", tab="header"))
+    if header_kind == "section":
+        # ---- Section heading: simple large-text divider ----
+        section_title = request.form.get("section_title", "").strip()
+        if not section_title:
+            flash("Please enter a heading.", "error")
+            return redirect(url_for("entries.index", tab="header"))
+
+        entry = Entry(
+            type=Entry.TYPE_HEADER,
+            title=section_title,
+            body=json.dumps({"header_kind": "section"}),
+        )
+        db.session.add(entry)
+        _attach_tags(entry, _parse_form_tags())
+        _safe_commit()
+        return redirect(url_for("entries.index"))
+
+    # ---- Run header: fetch metadata from NeXus file ----
+    # IPTS is always available (required to start neutroNote).
+    config = NotebookConfig.get_config()
 
     run_number_str = request.form.get("run_number", "").strip()
 
@@ -205,10 +222,12 @@ def create_header():
         return redirect(url_for("entries.index", tab="header"))
 
     # Store the metadata as JSON in the body
+    meta_dict = metadata.to_dict()
+    meta_dict["header_kind"] = "run"
     entry = Entry(
         type=Entry.TYPE_HEADER,
         title=f"Run {run_number}: {metadata.title}",
-        body=json.dumps(metadata.to_dict()),
+        body=json.dumps(meta_dict),
     )
 
     db.session.add(entry)
@@ -1044,9 +1063,15 @@ def edit(entry_id):
     """Edit an existing entry."""
     entry = Entry.query.get_or_404(entry_id)
 
-    # Don't allow editing of header entries (they're generated from data)
+    # Don't allow editing of run header entries (they're generated from data).
+    # Section headers ARE editable (header_kind == "section" in body JSON).
     if entry.type == Entry.TYPE_HEADER:
-        return redirect(url_for("entries.index"))
+        try:
+            body_data = json.loads(entry.body) if entry.body else {}
+        except (json.JSONDecodeError, TypeError):
+            body_data = {}
+        if body_data.get("header_kind") != "section":
+            return redirect(url_for("entries.index"))
 
     if request.method == "POST":
         body = request.form.get("body", "").strip()

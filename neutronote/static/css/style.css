@@ -1198,13 +1198,35 @@ a:hover {
     box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
-/* ============================================
-   Run Header Entry
-   ============================================ */
-.entry-header .badge-header {
-    background: #d1fae5;
-    color: #065f46;
+/* Header kind radio selector */
+.header-kind-selector {
+    display: flex;
+    gap: 1.5rem;
+    margin-bottom: 0.25rem;
 }
+
+.header-kind-selector .radio-label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: var(--color-text);
+}
+
+.header-kind-selector .radio-label.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.header-kind-selector .radio-label .form-hint {
+    margin-left: 0.25rem;
+    font-size: 0.75rem;
+}
+
+/* ============================================
+   Header Entries (Run Headers + Section Headings)
+   ============================================ */
 
 .run-header-content {
     font-size: 0.9rem;
@@ -1285,10 +1307,39 @@ a:hover {
 }
 
 /* Header card border accent and background */
+/* Run header (default) – green accent */
 .entry-card.entry-header {
     border-left: 3px solid #10b981;
     padding: 0.5rem 0.75rem;
     background: #f0fdf4;
+}
+
+/* Section heading – blue accent, visually distinct from run headers */
+.entry-card.entry-header.header-section {
+    border-left: 4px solid #3b82f6;
+    background: #eff6ff;
+    padding: 0.6rem 0.75rem 0.3rem;
+}
+
+/* Run header badge */
+.entry-header .badge-run {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+/* Section heading badge */
+.entry-header .badge-section {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+/* Section heading title – large, prominent */
+.section-heading-title {
+    margin: 0.1rem 0 0.15rem;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #1e3a5f;
+    letter-spacing: -0.01em;
 }
 
 /* Compact single-row header for run header entries */
