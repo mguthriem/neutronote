@@ -196,9 +196,14 @@ def create_app(test_config=None, ipts=None, instrument_name=None):
     # running in --quiet mode (no debug traceback shown to user).
     # Only register in non-testing mode so the test client sees real errors.
     if not app.testing:
+        from werkzeug.exceptions import HTTPException
 
         @app.errorhandler(Exception)
         def unhandled_exception(error):
+            # Let Flask handle normal HTTP errors (404, 405, etc.) itself
+            if isinstance(error, HTTPException):
+                return error
+
             import traceback
 
             app.logger.error(
