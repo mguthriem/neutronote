@@ -221,10 +221,77 @@ docker compose up   # or gunicorn on analysis machine
 
 ## Future enhancements (out of scope for MVP)
 - Real-time collaboration (WebSockets)
-- PDF / HTML export of notebook
 - Cloud-hosted Pyodide worker for large-scale code cells
 - Notifications for `@mentions`
 - Integration with SNAPRed desktop app workflows
+- Show Instrument (3D instrument viewer — would require Three.js + IDF parsing)
+- Show Detectors (requires instrument geometry)
+
+---
+
+## Phase 4b – Workspace Interactivity (Workbench-like features) 🔄
+
+Bring Mantid Workbench-style interactivity to the workspace panel.
+Users can right-click workspace names to access common actions.
+
+**Branch:** `workspace-interactivity`
+
+### Step 1 — Right-click context menu & workspace management
+| Deliverable | Notes |
+|-------------|-------|
+| Custom right-click context menu on workspace names | JS context menu component |
+| **Delete workspace** | Free RAM — via existing `delete_workspace` kernel action |
+| **Rename workspace** | New kernel action: `RenameWorkspace` algorithm |
+| **Show Algorithm History** | `ws.getHistory()` → render as list in modal |
+
+### Step 2 — Plot Spectrum (highest value feature)
+| Deliverable | Notes |
+|-------------|-------|
+| **Plot Spectrum** dialog | Spectrum index picker (single, range, or list) |
+| New kernel action: `plot_spectrum` | Extract X/Y/E arrays for selected spectra |
+| Plotly.js line chart in modal | Interactive 1D plot with legend per spectrum |
+| Axis labels from workspace units | e.g. "d-Spacing (Å)" vs "Counts" |
+
+### Step 3 — Plot Colorfill (2D heatmap)
+| Deliverable | Notes |
+|-------------|-------|
+| **Plot Colorfill** option in context menu | For MatrixWorkspaces with many spectra |
+| New kernel action: `plot_colorfill` | Extract 2D array (spectra × bins) |
+| Plotly.js heatmap rendering | With colorbar, axis labels |
+
+### Step 4 — Show Data (spreadsheet view)
+| Deliverable | Notes |
+|-------------|-------|
+| **Show Data** option in context menu | Spreadsheet-like table view |
+| New kernel action: `show_data` | Paginated X/Y/E arrays (avoid sending huge data) |
+| Virtual-scroll or paginated HTML table in modal | Navigate large workspaces |
+| Copy selection to clipboard | Useful for quick data extraction |
+
+### Step 5 — Show Sample Logs
+| Deliverable | Notes |
+|-------------|-------|
+| **Show Sample Logs** option in context menu | Similar to PV Log but from workspace |
+| New kernel action: `show_logs` | `ws.run().getLogData()` → names, values, units |
+| Log browser: table of log names with values | Filterable list |
+| Time-series plot for time-series logs | Plotly.js, reuse PV Log infrastructure |
+
+### Step 6 — Save workspace
+| Deliverable | Notes |
+|-------------|-------|
+| **Save As NeXus** option in context menu | Export to IPTS shared folder |
+| New kernel action: `save_workspace` | `SaveNexus` algorithm |
+| Default path: `IPTS-<n>/shared/neutronote/` | User can edit filename |
+
+**Checkpoint 4b**
+```bash
+# Load a workspace via code cell: ws = LoadNexus(...)
+# Right-click workspace name in panel
+# Plot Spectrum → interactive 1D plot appears
+# Show Data → paginated table
+# Show Logs → time-series log plot
+# Delete → workspace removed, RAM freed
+pixi run test  # all tests pass
+```
 
 ---
 

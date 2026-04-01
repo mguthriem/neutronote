@@ -436,16 +436,47 @@ print('Hello from neutroNote!')"></textarea>
     </aside>
 
 <!-- Workspace Context Menu -->
-<div id="workspace-context-menu" class="context-menu" style="display: none;">
-    <div class="context-menu-item" onclick="workspaceAction('insert')">
-        <span class="context-menu-icon">📝</span> Insert name
+<div id="workspace-context-menu" class="ws-context-menu" style="display: none;">
+    <div class="ws-context-menu-header" id="ws-context-menu-title">workspace</div>
+    <div class="ws-context-menu-item" onclick="wsAction('plot_spectrum')">
+        <span class="ws-context-menu-icon">📈</span> Plot Spectrum…
     </div>
-    <div class="context-menu-item" onclick="workspaceAction('info')">
-        <span class="context-menu-icon">ℹ️</span> Show info
+    <div class="ws-context-menu-item" onclick="wsAction('plot_colorfill')">
+        <span class="ws-context-menu-icon">🌈</span> Plot Colorfill
     </div>
-    <div class="context-menu-divider"></div>
-    <div class="context-menu-item danger" onclick="workspaceAction('delete')">
-        <span class="context-menu-icon">🗑️</span> Delete workspace
+    <div class="ws-context-menu-item" onclick="wsAction('show_data')">
+        <span class="ws-context-menu-icon">�</span> Show Data
+    </div>
+    <div class="ws-context-menu-divider"></div>
+    <div class="ws-context-menu-item" onclick="wsAction('show_logs')">
+        <span class="ws-context-menu-icon">📋</span> Sample Logs
+    </div>
+    <div class="ws-context-menu-item" onclick="wsAction('history')">
+        <span class="ws-context-menu-icon">🕐</span> Algorithm History
+    </div>
+    <div class="ws-context-menu-divider"></div>
+    <div class="ws-context-menu-item" onclick="wsAction('rename')">
+        <span class="ws-context-menu-icon">✏️</span> Rename…
+    </div>
+    <div class="ws-context-menu-item" onclick="wsAction('save')">
+        <span class="ws-context-menu-icon">💾</span> Save As NeXus…
+    </div>
+    <div class="ws-context-menu-divider"></div>
+    <div class="ws-context-menu-item ws-danger" onclick="wsAction('delete')">
+        <span class="ws-context-menu-icon">🗑️</span> Delete
+    </div>
+</div>
+
+<!-- Workspace Interaction Modal (shared overlay for all workspace views) -->
+<div id="ws-modal" class="ws-modal-overlay" style="display: none;" onclick="if(event.target===this)closeWsModal()">
+    <div class="ws-modal">
+        <div class="ws-modal-header">
+            <h3 id="ws-modal-title">Workspace</h3>
+            <button class="ws-modal-close" onclick="closeWsModal()">×</button>
+        </div>
+        <div class="ws-modal-body" id="ws-modal-body">
+            <!-- Content injected by JS -->
+        </div>
     </div>
 </div>
 
@@ -3020,17 +3051,54 @@ async function refreshWorkspaces() {
         if (data.workspaces.length === 0) {
             list.innerHTML = '<div class="workspace-empty">No workspaces loaded</div>';
         } else {
-            list.innerHTML = data.workspaces.map(ws => `
-                <div class="workspace-item" title="Click to insert name">
-                    <span class="workspace-icon">📦</span>
-                    <span class="workspace-name" onclick="insertWorkspaceName('${ws.name}')">${ws.name}</span>
-                    <span class="workspace-info">${ws.type} · ${ws.num_spectra} spec · ${ws.memory_mb.toFixed(1)} MB</span>
-                    <button class="workspace-delete-btn" onclick="deleteWorkspace('${ws.name}', event)" title="Delete workspace">🗑️</button>
-                </div>
-            `).join('');
+            list.innerHTML = data.workspaces.map((ws, idx) => {
+                const uid = `ws-detail-${idx}`;
+                const xUnit = ws.x_unit ? `${ws.x_unit}${ws.x_unit_label ? ' (' + ws.x_unit_label + ')' : ''}` : '—';
+                const yUnit = ws.y_unit || '—';
+                const hist = ws.histogram ? 'Histogram' : 'Point data';
+                const dist = ws.distribution ? 'Yes' : 'No';
+                const commonBins = ws.common_bins ? 'Yes' : 'No';
+                const runNum = ws.run_number || '—';
+                const wsTitle = ws.title || '—';
+                const instrument = ws.instrument || '—';
+                return `
+                <div class="workspace-item" oncontextmenu="showWsContextMenu(event, '${ws.name}', ${ws.num_spectra})" title="Click to expand · Right-click for actions">
+                    <div class="workspace-header" onclick="toggleWsDetail('${uid}')">
+                        <span class="workspace-expand-icon" id="${uid}-icon">▶</span>
+                        <span class="workspace-icon">📦</span>
+                        <span class="workspace-name">${ws.name}</span>
+                        <span class="workspace-info">${ws.type} · ${ws.num_spectra} spec · ${ws.memory_mb.toFixed(1)} MB</span>
+                    </div>
+                    <div class="workspace-detail" id="${uid}" style="display:none">
+                        <table class="ws-meta-table">
+                            <tr><td>X unit</td><td>${xUnit}</td></tr>
+                            <tr><td>Y unit</td><td>${yUnit}</td></tr>
+                            <tr><td>Bins</td><td>${ws.num_bins} · ${hist}</td></tr>
+                            <tr><td>Common bins</td><td>${commonBins}</td></tr>
+                            <tr><td>Distribution</td><td>${dist}</td></tr>
+                            <tr><td>Instrument</td><td>${instrument}</td></tr>
+                            <tr><td>Run number</td><td>${runNum}</td></tr>
+                            <tr><td>Title</td><td>${wsTitle}</td></tr>
+                        </table>
+                    </div>
+                </div>`;
+            }).join('');
         }
     } catch (err) {
         console.error('Failed to refresh workspaces:', err);
+    }
+}
+
+function toggleWsDetail(uid) {
+    const el = document.getElementById(uid);
+    const icon = document.getElementById(uid + '-icon');
+    if (!el) return;
+    if (el.style.display === 'none') {
+        el.style.display = 'block';
+        if (icon) icon.textContent = '▼';
+    } else {
+        el.style.display = 'none';
+        if (icon) icon.textContent = '▶';
     }
 }
 
@@ -3146,6 +3214,651 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+
+// =========================================================================
+// Workspace Interactivity (context menu + modals)
+// =========================================================================
+
+// Track which workspace the context menu is targeting
+let _wsContextTarget = null;
+let _wsContextNumSpectra = 0;
+
+function showWsContextMenu(event, wsName, numSpectra) {
+    event.preventDefault();
+    event.stopPropagation();
+    _wsContextTarget = wsName;
+    _wsContextNumSpectra = numSpectra || 0;
+
+    const menu = document.getElementById('workspace-context-menu');
+    const title = document.getElementById('ws-context-menu-title');
+    title.textContent = wsName;
+
+    menu.style.display = 'block';
+    // Position near click, keep on screen
+    let x = event.clientX;
+    let y = event.clientY;
+    const mw = menu.offsetWidth;
+    const mh = menu.offsetHeight;
+    if (x + mw > window.innerWidth) x = window.innerWidth - mw - 4;
+    if (y + mh > window.innerHeight) y = window.innerHeight - mh - 4;
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+}
+
+// Hide context menu on any click
+document.addEventListener('click', () => {
+    document.getElementById('workspace-context-menu').style.display = 'none';
+});
+
+// Dispatch workspace action
+function wsAction(action) {
+    document.getElementById('workspace-context-menu').style.display = 'none';
+    const name = _wsContextTarget;
+    if (!name) return;
+
+    switch (action) {
+        case 'plot_spectrum': wsPlotSpectrum(name); break;
+        case 'plot_colorfill': wsPlotColorfill(name); break;
+        case 'show_data': wsShowData(name, 0); break;
+        case 'show_logs': wsShowLogs(name); break;
+        case 'history': wsShowHistory(name); break;
+        case 'rename': wsRename(name); break;
+        case 'save': wsSave(name); break;
+        case 'delete': deleteWorkspace(name); break;
+    }
+}
+
+// --- Modal helpers ---
+function openWsModal(title, html) {
+    document.getElementById('ws-modal-title').textContent = title;
+    document.getElementById('ws-modal-body').innerHTML = html;
+    document.getElementById('ws-modal').style.display = 'flex';
+}
+
+function closeWsModal() {
+    document.getElementById('ws-modal').style.display = 'none';
+    document.getElementById('ws-modal-body').innerHTML = '';
+}
+
+function wsModalLoading(msg) {
+    return `<div class="ws-loading">⏳ ${msg || 'Loading…'}</div>`;
+}
+
+// --- Save-to-timeline helper (shared by spectrum + colorfill) ---
+function _addSaveToTimelineBtn(plotDiv, defaultTitle) {
+    // Remove any existing save button (e.g. on replot)
+    const existing = plotDiv.parentElement.querySelector('.ws-save-timeline-btn');
+    if (existing) existing.remove();
+
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-sm btn-outline ws-save-timeline-btn';
+    btn.textContent = '💾 Save to Timeline';
+    btn.style.marginTop = '8px';
+    btn.onclick = async () => {
+        btn.disabled = true;
+        btn.textContent = '⏳ Saving…';
+        try {
+            const imgData = await Plotly.toImage(plotDiv, { format: 'png', width: 900, height: 500 });
+            const resp = await fetch('/entries/api/save-plot-to-timeline', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image_data: imgData, title: defaultTitle }),
+            });
+            const result = await resp.json();
+            if (result.success) {
+                btn.textContent = '✅ Saved!';
+                btn.disabled = true;
+                // Append the new image entry to the timeline immediately
+                _appendImageEntryToTimeline(result.entry_id, result.filename, result.title, result.timestamp);
+                // Close the modal after a brief visual confirmation
+                setTimeout(() => closeWsModal(), 600);
+            } else {
+                btn.textContent = '❌ ' + (result.error || 'Failed');
+                setTimeout(() => { btn.disabled = false; btn.textContent = '💾 Save to Timeline'; }, 3000);
+            }
+        } catch (err) {
+            btn.textContent = '❌ ' + err.message;
+            setTimeout(() => { btn.disabled = false; btn.textContent = '💾 Save to Timeline'; }, 3000);
+        }
+    };
+    plotDiv.parentElement.insertBefore(btn, plotDiv.nextSibling);
+}
+
+function _appendImageEntryToTimeline(entryId, filename, title, timestamp) {
+    const timeline = document.getElementById('timeline');
+    if (!timeline) return;
+    const timeStr = timestamp ? new Date(timestamp).toLocaleString() : new Date().toLocaleString();
+    const imgUrl = `/entries/uploads/${encodeURIComponent(filename)}`;
+    const safeTitle = (title || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const entryHtml = `
+        <article class="entry-card entry-type-image" id="entry-${entryId}" data-entry-id="${entryId}">
+            <header class="entry-header entry-header-compact">
+                <div class="entry-header-left">
+                    <span class="entry-type-badge badge-image">Image</span>
+                    <time class="entry-timestamp">${timeStr}</time>
+                </div>
+            </header>
+            <div class="entry-body">
+                <figure class="image-content">
+                    <img src="${imgUrl}" alt="${safeTitle}" loading="lazy">
+                    ${safeTitle ? `<figcaption>${safeTitle}</figcaption>` : ''}
+                </figure>
+            </div>
+        </article>
+    `;
+    timeline.insertAdjacentHTML('beforeend', entryHtml);
+    const newEntry = document.getElementById(`entry-${entryId}`);
+    if (newEntry) newEntry.scrollIntoView({ behavior: 'smooth', block: 'end' });
+}
+
+// --- Plot Spectrum ---
+async function wsPlotSpectrum(name, spectraStr) {
+    if (!spectraStr) {
+        // Show picker first
+        const maxSp = _wsContextNumSpectra || 1;
+        openWsModal(`Plot Spectrum — ${name}`, `
+            <div class="ws-spectrum-picker">
+                <label>Spectra:</label>
+                <input type="text" id="ws-spectra-input" value="0" placeholder="e.g. 0, 5, 10-20"
+                       onkeydown="if(event.key==='Enter'){wsPlotSpectrumGo('${name}');}">
+                <button class="btn btn-sm btn-primary" onclick="wsPlotSpectrumGo('${name}')">Plot</button>
+                <span class="ws-hint">0 – ${maxSp - 1} (comma-separated or ranges)</span>
+            </div>
+            <div id="ws-spectrum-plot" class="ws-plot-container"></div>
+        `);
+        return;
+    }
+
+    // Parse spectra string: "0, 3, 5-10" -> [0, 3, 5, 6, 7, 8, 9, 10]
+    const spectra = parseSpectraString(spectraStr);
+    if (spectra.length === 0) {
+        alert('No valid spectra specified.');
+        return;
+    }
+
+    const plotDiv = document.getElementById('ws-spectrum-plot');
+    if (plotDiv) plotDiv.innerHTML = wsModalLoading('Fetching spectrum data…');
+
+    try {
+        const resp = await fetch(`/entries/api/kernel/workspaces/${encodeURIComponent(name)}/plot-spectrum?spectra=${spectra.join(',')}`);
+        const data = await resp.json();
+        if (!data.success) {
+            if (plotDiv) plotDiv.innerHTML = `<div class="ws-loading">❌ ${data.error}</div>`;
+            return;
+        }
+        // Build Plotly traces
+        const traces = data.traces.map(t => ({
+            x: t.x, y: t.y,
+            name: t.label,
+            type: 'scatter', mode: 'lines',
+        }));
+        const layout = {
+            xaxis: { title: data.x_label || 'X' },
+            yaxis: { title: data.y_label || 'Y' },
+            margin: { t: 30, r: 20, b: 50, l: 60 },
+            height: 420,
+            legend: { orientation: 'h', y: -0.2 },
+        };
+        if (plotDiv) {
+            plotDiv.innerHTML = '';
+            Plotly.newPlot(plotDiv, traces, layout, { responsive: true });
+            // Add "Save to Timeline" button below the plot
+            const spectraDesc = spectra.length <= 3 ? spectra.join(', ') : `${spectra.length} spectra`;
+            _addSaveToTimelineBtn(plotDiv, `Plot Spectrum — ${name} [${spectraDesc}]`);
+        }
+    } catch (err) {
+        if (plotDiv) plotDiv.innerHTML = `<div class="ws-loading">❌ ${err.message}</div>`;
+    }
+}
+
+function wsPlotSpectrumGo(name) {
+    const input = document.getElementById('ws-spectra-input');
+    wsPlotSpectrum(name, input ? input.value : '0');
+}
+
+function parseSpectraString(s) {
+    const parts = s.split(',');
+    const result = [];
+    for (const p of parts) {
+        const trimmed = p.trim();
+        if (trimmed.includes('-')) {
+            const [a, b] = trimmed.split('-').map(Number);
+            if (!isNaN(a) && !isNaN(b)) {
+                for (let i = Math.min(a, b); i <= Math.max(a, b); i++) result.push(i);
+            }
+        } else {
+            const n = parseInt(trimmed);
+            if (!isNaN(n)) result.push(n);
+        }
+    }
+    return [...new Set(result)].sort((a, b) => a - b);
+}
+
+// --- Plot Colorfill ---
+async function wsPlotColorfill(name) {
+    // Clear stashed zoom so a fresh colorfill starts at full range
+    window._wsColorfillXRange = null;
+    window._wsColorfillYRange = null;
+    openWsModal(`Colorfill — ${name}`, wsModalLoading('Fetching 2D data…'));
+    try {
+        const resp = await fetch(`/entries/api/kernel/workspaces/${encodeURIComponent(name)}/plot-colorfill`);
+        const data = await resp.json();
+        const body = document.getElementById('ws-modal-body');
+        if (!data.success) {
+            body.innerHTML = `<div class="ws-loading">❌ ${data.error}</div>`;
+            return;
+        }
+        body.innerHTML = `
+            <div class="ws-colorfill-controls">
+                <label><input type="checkbox" id="ws-cf-autoscale" checked
+                    onchange="wsColorfillAutoToggle()"> Autoscaling</label>
+                <span class="ws-cf-separator">|</span>
+                <label>Min:</label>
+                <input type="number" id="ws-cf-min" placeholder="auto" step="any" style="width:90px"
+                       oninput="wsColorfillManualInput()"
+                       onkeydown="if(event.key==='Enter') wsColorfillReplot();">
+                <label>Max:</label>
+                <input type="number" id="ws-cf-max" placeholder="auto" step="any" style="width:90px"
+                       oninput="wsColorfillManualInput()"
+                       onkeydown="if(event.key==='Enter') wsColorfillReplot();">
+                <label><input type="checkbox" id="ws-cf-log" onchange="wsColorfillReplot()"> Log scale</label>
+                <button class="btn btn-sm btn-primary" onclick="wsColorfillReplot()">Apply</button>
+            </div>
+            <div id="ws-colorfill-plot" class="ws-plot-container"></div>
+        `;
+        // Store data globally so we can replot with controls
+        window._wsColorfillData = data;
+        wsColorfillReplot();
+    } catch (err) {
+        document.getElementById('ws-modal-body').innerHTML = `<div class="ws-loading">❌ ${err.message}</div>`;
+    }
+}
+
+function wsColorfillReplot() {
+    const data = window._wsColorfillData;
+    if (!data) return;
+    const plotDiv = document.getElementById('ws-colorfill-plot');
+    if (!plotDiv) return;
+
+    const autoCheck = document.getElementById('ws-cf-autoscale');
+    const minInput  = document.getElementById('ws-cf-min');
+    const maxInput  = document.getElementById('ws-cf-max');
+    const useLog    = document.getElementById('ws-cf-log')?.checked;
+    const isAuto    = autoCheck?.checked;
+
+    // Determine effective min/max for the colour scale.
+    // data.data_min / data.data_max are the true data bounds (server-side).
+    let effMin = data.data_min !== undefined ? data.data_min : 0;
+    let effMax = data.data_max !== undefined ? data.data_max : 1;
+
+    if (!isAuto) {
+        // Manual: use whichever values the user supplied, fill in the other
+        const userMin = minInput?.value;
+        const userMax = maxInput?.value;
+        if (userMin !== '' && userMin !== undefined) effMin = Number(userMin);
+        if (userMax !== '' && userMax !== undefined) effMax = Number(userMax);
+        // Show the resolved values in the inputs so the user sees them
+        if (minInput && (minInput.value === '' || minInput.value === undefined))
+            minInput.value = effMin;
+        if (maxInput && (maxInput.value === '' || maxInput.value === undefined))
+            maxInput.value = effMax;
+    } else {
+        // Auto mode: clear inputs, show placeholder "auto"
+        if (minInput) minInput.value = '';
+        if (maxInput) maxInput.value = '';
+    }
+
+    let z = data.z;
+    // For log scale, take log10 of z values (replace <=0 and null with null)
+    if (useLog) {
+        z = data.z.map(row => row.map(v => (v != null && v > 0) ? Math.log10(v) : null));
+    }
+
+    // Convert limits to log10 if in log mode
+    let zmin, zmax;
+    if (useLog) {
+        zmin = (effMin > 0) ? Math.log10(effMin) : undefined;
+        zmax = (effMax > 0) ? Math.log10(effMax) : undefined;
+    } else {
+        zmin = effMin;
+        zmax = effMax;
+    }
+
+    const trace = {
+        z: z, x: data.x, y: data.y,
+        type: 'heatmap',
+        colorscale: 'Viridis',
+        colorbar: { title: 'Counts' },
+        hoverongaps: false,
+        zsmooth: false,
+    };
+    if (zmin !== undefined) trace.zmin = zmin;
+    if (zmax !== undefined) trace.zmax = zmax;
+
+    // In log mode, label the colorbar with original count values
+    if (useLog) {
+        // Determine the range of log10 values for tick placement
+        const flatZ = z.flat().filter(v => v != null);
+        const logMin = flatZ.length ? Math.min(...flatZ) : 0;
+        const logMax = flatZ.length ? Math.max(...flatZ) : 1;
+        const lo = zmin !== undefined ? zmin : Math.floor(logMin);
+        const hi = zmax !== undefined ? zmax : Math.ceil(logMax);
+        // Generate integer powers of 10 as tick marks
+        const tickvals = [];
+        const ticktext = [];
+        for (let exp = Math.floor(lo); exp <= Math.ceil(hi); exp++) {
+            tickvals.push(exp);
+            ticktext.push(Math.pow(10, exp).toExponential(0));
+        }
+        trace.colorbar.tickvals = tickvals;
+        trace.colorbar.ticktext = ticktext;
+    }
+
+    const layout = {
+        xaxis: { title: data.x_label || 'X' },
+        yaxis: { title: data.y_label || 'Spectrum Index' },
+        margin: { t: 30, r: 20, b: 50, l: 60 },
+        height: 450,
+        plot_bgcolor: '#ffffff',
+    };
+
+    // Preserve any existing zoom/pan state across z-scale changes.
+    // We stash the ranges on relayout events (see listener below).
+    if (window._wsColorfillXRange) {
+        layout.xaxis.range = window._wsColorfillXRange;
+        layout.xaxis.autorange = false;
+    }
+    if (window._wsColorfillYRange) {
+        layout.yaxis.range = window._wsColorfillYRange;
+        layout.yaxis.autorange = false;
+    }
+
+    Plotly.react(plotDiv, [trace], layout, { responsive: true });
+
+    // Listen for zoom/pan events and stash the ranges so we can
+    // restore them on replot.  Only attach once.
+    if (!plotDiv._wsRelayoutAttached) {
+        plotDiv.on('plotly_relayout', function(ed) {
+            if (ed['xaxis.range[0]'] !== undefined) {
+                window._wsColorfillXRange = [ed['xaxis.range[0]'], ed['xaxis.range[1]']];
+            }
+            if (ed['yaxis.range[0]'] !== undefined) {
+                window._wsColorfillYRange = [ed['yaxis.range[0]'], ed['yaxis.range[1]']];
+            }
+            // Double-click resets → clear saved ranges
+            if (ed['xaxis.autorange'] || ed['yaxis.autorange']) {
+                window._wsColorfillXRange = null;
+                window._wsColorfillYRange = null;
+            }
+        });
+        plotDiv._wsRelayoutAttached = true;
+    }
+    // Add/refresh "Save to Timeline" button below the colorfill plot
+    const logLabel = useLog ? ' (log)' : '';
+    _addSaveToTimelineBtn(plotDiv, `Colorfill — ${data.name}${logLabel}`);
+}
+
+// Called when user types into Min or Max inputs — switch to manual mode
+function wsColorfillManualInput() {
+    const autoCheck = document.getElementById('ws-cf-autoscale');
+    if (autoCheck && autoCheck.checked) {
+        autoCheck.checked = false;
+    }
+    // Don't replot on every keystroke — user will press Enter or Apply.
+    // But we do uncheck autoscaling immediately.
+}
+
+// Called when the Autoscaling checkbox changes
+function wsColorfillAutoToggle() {
+    const autoCheck = document.getElementById('ws-cf-autoscale');
+    if (autoCheck?.checked) {
+        // Switching back to auto: clear user inputs and replot immediately
+        const minInput = document.getElementById('ws-cf-min');
+        const maxInput = document.getElementById('ws-cf-max');
+        if (minInput) minInput.value = '';
+        if (maxInput) maxInput.value = '';
+        wsColorfillReplot();
+    }
+}
+
+// --- Show Data ---
+async function wsShowData(name, startSpec, startBin) {
+    if (startBin === undefined) startBin = 0;
+    if (startSpec === 0 && startBin === 0) {
+        openWsModal(`Data — ${name}`, wsModalLoading('Loading data…'));
+    } else {
+        document.getElementById('ws-modal-body').innerHTML = wsModalLoading('Loading page…');
+    }
+
+    const binsPerPage = 50;
+    const specsPerPage = 20;
+
+    try {
+        const resp = await fetch(`/entries/api/kernel/workspaces/${encodeURIComponent(name)}/data?start=${startSpec}&count=${specsPerPage}&start_bin=${startBin}&num_bins=${binsPerPage}`);
+        const data = await resp.json();
+        const body = document.getElementById('ws-modal-body');
+        if (!data.success) {
+            body.innerHTML = `<div class="ws-loading">❌ ${data.error}</div>`;
+            return;
+        }
+
+        const eName = name.replace(/'/g, "\\'");
+
+        // Bin pager (top) with jump-to
+        const hasPrevBin = data.start_bin > 0;
+        const hasNextBin = data.end_bin < data.num_bins;
+        let html = `<div class="ws-data-pager ws-data-pager-bins">`;
+        html += `<button ${hasPrevBin ? '' : 'disabled'} onclick="wsShowData('${eName}', ${startSpec}, ${Math.max(0, data.start_bin - binsPerPage)})">◀ Prev</button>`;
+        html += `<span>Bins ${data.start_bin}–${data.end_bin - 1} of ${data.num_bins}</span>`;
+        html += `<button ${hasNextBin ? '' : 'disabled'} onclick="wsShowData('${eName}', ${startSpec}, ${data.end_bin})">Next ▶</button>`;
+        html += `<span class="ws-data-jump">Jump to bin: <input type="number" id="ws-data-jump-bin" min="0" max="${data.num_bins - 1}" value="${data.start_bin}" style="width:70px"`;
+        html += ` onkeydown="if(event.key==='Enter') wsDataJump('${eName}', ${data.num_spectra}, ${data.num_bins})"></span>`;
+        html += `</div>`;
+
+        // Build table
+        html += `<div class="ws-data-table-wrapper"><table class="ws-data-table"><thead><tr><th>Spec</th><th>Col</th>`;
+        // Column headers = actual bin indices
+        if (data.rows.length > 0) {
+            const nCols = data.rows[0].x.length;
+            for (let c = 0; c < nCols; c++) html += `<th>${data.start_bin + c}</th>`;
+        }
+        html += '</tr></thead><tbody>';
+
+        for (const row of data.rows) {
+            // X row
+            html += `<tr><td rowspan="3">${row.spectrum}</td><td>X</td>`;
+            for (let c = 0; c < row.x.length; c++) html += `<td>${row.x[c] != null ? row.x[c].toPrecision(6) : '—'}</td>`;
+            html += '</tr>';
+            // Y row
+            html += '<tr><td>Y</td>';
+            for (let c = 0; c < row.y.length; c++) html += `<td>${row.y[c] != null ? row.y[c].toPrecision(6) : '—'}</td>`;
+            html += '</tr>';
+            // E row
+            html += '<tr><td>E</td>';
+            for (let c = 0; c < row.e.length; c++) html += `<td>${row.e[c] != null ? row.e[c].toPrecision(6) : '—'}</td>`;
+            html += '</tr>';
+        }
+        html += '</tbody></table></div>';
+
+        // Spectrum pager (bottom) with jump-to
+        const hasPrev = data.start_spec > 0;
+        const hasNext = data.end_spec < data.num_spectra;
+        html += `<div class="ws-data-pager">`;
+        html += `<button ${hasPrev ? '' : 'disabled'} onclick="wsShowData('${eName}', ${Math.max(0, data.start_spec - specsPerPage)}, ${startBin})">← Prev</button>`;
+        html += `<span>Spectra ${data.start_spec}–${data.end_spec - 1} of ${data.num_spectra}</span>`;
+        html += `<button ${hasNext ? '' : 'disabled'} onclick="wsShowData('${eName}', ${data.end_spec}, ${startBin})">Next →</button>`;
+        html += `<span class="ws-data-jump">Jump to spectrum: <input type="number" id="ws-data-jump-spec" min="0" max="${data.num_spectra - 1}" value="${data.start_spec}" style="width:70px"`;
+        html += ` onkeydown="if(event.key==='Enter') wsDataJump('${eName}', ${data.num_spectra}, ${data.num_bins})"></span>`;
+        html += `</div>`;
+
+        body.innerHTML = html;
+    } catch (err) {
+        document.getElementById('ws-modal-body').innerHTML = `<div class="ws-loading">❌ ${err.message}</div>`;
+    }
+}
+
+// Jump-to handler for the data table — reads both jump inputs
+function wsDataJump(name, numSpectra, numBins) {
+    const specInput = document.getElementById('ws-data-jump-spec');
+    const binInput  = document.getElementById('ws-data-jump-bin');
+    let spec = specInput ? Math.max(0, Math.min(parseInt(specInput.value) || 0, numSpectra - 1)) : 0;
+    let bin  = binInput  ? Math.max(0, Math.min(parseInt(binInput.value)  || 0, numBins - 1))    : 0;
+    wsShowData(name, spec, bin);
+}
+
+// --- Show Sample Logs ---
+async function wsShowLogs(name) {
+    openWsModal(`Sample Logs — ${name}`, wsModalLoading('Loading logs…'));
+    try {
+        const resp = await fetch(`/entries/api/kernel/workspaces/${encodeURIComponent(name)}/logs`);
+        const data = await resp.json();
+        const body = document.getElementById('ws-modal-body');
+        if (!data.success) {
+            body.innerHTML = `<div class="ws-loading">❌ ${data.error}</div>`;
+            return;
+        }
+
+        let html = `<div class="ws-logs-filter"><input type="text" placeholder="Filter logs…" oninput="filterWsLogs(this.value)"></div>`;
+        html += '<div style="max-height:400px;overflow-y:auto;"><table class="ws-logs-table" id="ws-logs-table"><thead><tr>';
+        html += '<th>Name</th><th>Value</th><th>Units</th><th></th></tr></thead><tbody>';
+
+        for (const log of data.logs) {
+            const val = log.is_series
+                ? `<em>time series (${log.size || '?'} pts)</em>`
+                : (log.value != null ? String(log.value).substring(0, 80) : '—');
+            const plotBtn = log.is_series
+                ? `<button class="ws-log-plot-btn" onclick="wsPlotLog('${name}', '${log.name.replace(/'/g, "\\'")}')">📈 Plot</button>`
+                : '';
+            html += `<tr class="ws-log-row" data-name="${log.name.toLowerCase()}"><td>${log.name}</td><td>${val}</td><td>${log.units || ''}</td><td>${plotBtn}</td></tr>`;
+        }
+
+        html += '</tbody></table></div>';
+        html += '<div id="ws-log-plot-area" class="ws-plot-container" style="margin-top:12px;"></div>';
+        body.innerHTML = html;
+    } catch (err) {
+        document.getElementById('ws-modal-body').innerHTML = `<div class="ws-loading">❌ ${err.message}</div>`;
+    }
+}
+
+function filterWsLogs(query) {
+    const rows = document.querySelectorAll('.ws-log-row');
+    const q = query.toLowerCase();
+    rows.forEach(r => {
+        r.style.display = r.dataset.name.includes(q) ? '' : 'none';
+    });
+}
+
+async function wsPlotLog(wsName, logName) {
+    const plotArea = document.getElementById('ws-log-plot-area');
+    if (!plotArea) return;
+    plotArea.innerHTML = wsModalLoading('Loading time series…');
+    try {
+        const resp = await fetch(`/entries/api/kernel/workspaces/${encodeURIComponent(wsName)}/logs/${encodeURIComponent(logName)}/series`);
+        const data = await resp.json();
+        if (!data.success) {
+            plotArea.innerHTML = `<div class="ws-loading">❌ ${data.error}</div>`;
+            return;
+        }
+        plotArea.innerHTML = '';
+        const trace = {
+            x: data.times, y: data.values,
+            type: 'scatter', mode: 'lines',
+            name: logName,
+        };
+        const layout = {
+            xaxis: { title: 'Time' },
+            yaxis: { title: `${logName}${data.units ? ' (' + data.units + ')' : ''}` },
+            margin: { t: 30, r: 20, b: 50, l: 60 },
+            height: 300,
+        };
+        Plotly.newPlot(plotArea, [trace], layout, { responsive: true });
+    } catch (err) {
+        plotArea.innerHTML = `<div class="ws-loading">❌ ${err.message}</div>`;
+    }
+}
+
+// --- Algorithm History ---
+async function wsShowHistory(name) {
+    openWsModal(`Algorithm History — ${name}`, wsModalLoading('Loading history…'));
+    try {
+        const resp = await fetch(`/entries/api/kernel/workspaces/${encodeURIComponent(name)}/history`);
+        const data = await resp.json();
+        const body = document.getElementById('ws-modal-body');
+        if (!data.success) {
+            body.innerHTML = `<div class="ws-loading">❌ ${data.error}</div>`;
+            return;
+        }
+        if (data.history.length === 0) {
+            body.innerHTML = '<div class="ws-loading">No algorithm history recorded.</div>';
+            return;
+        }
+
+        let html = '<div class="ws-history-list">';
+        for (let i = 0; i < data.history.length; i++) {
+            const h = data.history[i];
+            html += `<div class="ws-history-item">`;
+            html += `<span class="ws-history-alg-name">${i + 1}. ${h.name} v${h.version}</span>`;
+            html += `<div class="ws-history-meta">${h.execution_date} · ${h.duration.toFixed(1)}s</div>`;
+            if (h.properties.length > 0) {
+                html += '<div class="ws-history-props">';
+                for (const p of h.properties) {
+                    const val = p.value.length > 80 ? p.value.substring(0, 80) + '…' : p.value;
+                    html += `<span>${p.name}=${val}</span>`;
+                }
+                html += '</div>';
+            }
+            html += '</div>';
+        }
+        html += '</div>';
+        body.innerHTML = html;
+    } catch (err) {
+        document.getElementById('ws-modal-body').innerHTML = `<div class="ws-loading">❌ ${err.message}</div>`;
+    }
+}
+
+// --- Rename ---
+async function wsRename(name) {
+    const newName = prompt(`Rename workspace "${name}" to:`, name);
+    if (!newName || newName === name) return;
+
+    try {
+        const resp = await fetch(`/entries/api/kernel/workspaces/${encodeURIComponent(name)}/rename`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ new_name: newName }),
+        });
+        const data = await resp.json();
+        if (data.success) {
+            await refreshKernelStatus();
+        } else {
+            alert('Rename failed: ' + (data.error || 'unknown error'));
+        }
+    } catch (err) {
+        alert('Rename failed: ' + err.message);
+    }
+}
+
+// --- Save ---
+async function wsSave(name) {
+    const filename = prompt(`Save workspace "${name}" as NeXus file.\nFilename:`, `${name}.nxs`);
+    if (!filename) return;
+
+    try {
+        const resp = await fetch(`/entries/api/kernel/workspaces/${encodeURIComponent(name)}/save`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename }),
+        });
+        const data = await resp.json();
+        if (data.success) {
+            alert(`✅ Saved to:\n${data.path}`);
+        } else {
+            alert('Save failed: ' + (data.error || 'unknown error'));
+        }
+    } catch (err) {
+        alert('Save failed: ' + err.message);
+    }
+}
 
 // =========================================================================
 // Panel Resizer

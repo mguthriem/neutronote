@@ -38,6 +38,30 @@ logger = logging.getLogger(__name__)
 bp = Blueprint("entries", __name__, url_prefix="/entries")
 
 
+def _safe_commit(max_retries=3):
+    """Commit the current DB session with retry logic for SQLite lock errors.
+
+    SQLite on a shared network filesystem (GPFS) can transiently fail with
+    'database is locked' when multiple users write concurrently.  This
+    helper retries a few times before giving up.
+    """
+    import time
+    from sqlalchemy.exc import OperationalError
+
+    for attempt in range(max_retries):
+        try:
+            db.session.commit()
+            return
+        except OperationalError as exc:
+            db.session.rollback()
+            if "locked" in str(exc).lower() and attempt < max_retries - 1:
+                logger.warning("DB locked on commit (attempt %d/%d), retrying…",
+                               attempt + 1, max_retries)
+                time.sleep(0.5 * (attempt + 1))
+            else:
+                raise
+
+
 @bp.route("/")
 def index():
     """Main split-view: entry creation on left, timeline on right."""
@@ -101,7 +125,7 @@ def create_text():
         entry = Entry(type=Entry.TYPE_TEXT, title=title, body=body)
         db.session.add(entry)
         _attach_tags(entry, tag_names)
-        db.session.commit()
+        _safe_commit()
 
     return redirect(url_for("entries.index"))
 
@@ -145,7 +169,7 @@ def setup_notebook():
     config.experiment_start = experiment_start
     config.experiment_end = experiment_end
     config.updated_at = datetime.now(timezone.utc)
-    db.session.commit()
+    _safe_commit()
 
     flash("Notebook settings updated.", "success")
     return redirect(url_for("entries.index"))
@@ -189,7 +213,7 @@ def create_header():
 
     db.session.add(entry)
     _attach_tags(entry, _parse_form_tags())
-    db.session.commit()
+    _safe_commit()
 
     return redirect(url_for("entries.index"))
 
@@ -233,7 +257,7 @@ def create_image():
 
     db.session.add(entry)
     _attach_tags(entry, _parse_form_tags())
-    db.session.commit()
+    _safe_commit()
 
     return redirect(url_for("entries.index"))
 
@@ -365,7 +389,7 @@ def api_pick_image():
     )
     db.session.add(entry)
     _attach_tags(entry, _parse_json_tags(data))
-    db.session.commit()
+    _safe_commit()
 
     return jsonify(ok=True, entry_id=entry.id)
 
@@ -388,7 +412,7 @@ def api_reset_timeline():
     try:
         # Delete all entries
         num_deleted = Entry.query.delete()
-        db.session.commit()
+        _safe_commit()
 
         return jsonify(
             {
@@ -441,6 +465,65 @@ def upload_snapshot():
         f.write(image_bytes)
 
     return jsonify({"success": True, "filename": filename})
+
+
+@bp.route("/api/save-plot-to-timeline", methods=["POST"])
+def save_plot_to_timeline():
+    """
+    API: Save a Plotly plot snapshot as an image entry on the timeline.
+
+    Expects JSON body with:
+        - image_data: base64-encoded PNG data (data:image/png;base64,...)
+        - title: str (caption for the timeline entry)
+
+    Returns:
+        - success: True/False
+        - entry_id: the new entry ID
+    """
+    import base64
+
+    data = request.get_json()
+    if not data or "image_data" not in data:
+        return jsonify({"error": "image_data required"}), 400
+
+    title = data.get("title", "").strip() or "Workspace Plot"
+
+    image_data = data["image_data"]
+
+    # Parse data URL
+    if "," in image_data:
+        _header, encoded = image_data.split(",", 1)
+    else:
+        encoded = image_data
+
+    try:
+        image_bytes = base64.b64decode(encoded)
+    except Exception as e:
+        return jsonify({"error": f"Invalid base64 data: {e}"}), 400
+
+    # Save image file
+    filename = f"wsplot_{uuid.uuid4().hex}.png"
+    upload_folder = current_app.config["UPLOAD_FOLDER"]
+    file_path = os.path.join(upload_folder, filename)
+    with open(file_path, "wb") as f:
+        f.write(image_bytes)
+
+    # Create image entry
+    entry = Entry(
+        type=Entry.TYPE_IMAGE,
+        title=title,
+        body=filename,
+    )
+    db.session.add(entry)
+    _safe_commit()
+
+    return jsonify({
+        "success": True,
+        "entry_id": entry.id,
+        "filename": filename,
+        "title": title,
+        "timestamp": entry.created_at.isoformat() if entry.created_at else None,
+    })
 
 
 @bp.route("/api/execute", methods=["POST"])
@@ -549,6 +632,139 @@ def kernel_delete_workspace(name):
     ), (200 if success else 400)
 
 
+# =========================================================================
+# Workspace Interactivity API
+# =========================================================================
+
+
+@bp.route("/api/kernel/workspaces/<name>/rename", methods=["POST"])
+def kernel_rename_workspace(name):
+    """API: Rename a workspace."""
+    data = request.get_json() or {}
+    new_name = data.get("new_name", "").strip()
+    if not new_name:
+        return jsonify({"success": False, "error": "new_name is required"}), 400
+
+    kernel = get_kernel_manager()
+    result = kernel.rename_workspace(name, new_name)
+    if result is None:
+        return jsonify({"success": False, "error": "No response from kernel"}), 500
+    return jsonify(result)
+
+
+@bp.route("/api/kernel/workspaces/<name>/history")
+def kernel_workspace_history(name):
+    """API: Get algorithm history for a workspace."""
+    kernel = get_kernel_manager()
+    result = kernel.workspace_history(name)
+    if result is None:
+        return jsonify({"success": False, "error": "No response from kernel"}), 500
+    return jsonify(result)
+
+
+@bp.route("/api/kernel/workspaces/<name>/plot-spectrum")
+def kernel_plot_spectrum(name):
+    """API: Extract spectrum data for plotting.
+
+    Query params:
+        spectra: comma-separated spectrum indices (default: "0")
+    """
+    spectra_str = request.args.get("spectra", "0")
+    try:
+        spectra = [int(s.strip()) for s in spectra_str.split(",") if s.strip()]
+    except ValueError:
+        return jsonify({"success": False, "error": "Invalid spectra parameter"}), 400
+
+    kernel = get_kernel_manager()
+    result = kernel.plot_spectrum(name, spectra)
+    if result is None:
+        return jsonify({"success": False, "error": "No response from kernel"}), 500
+    return jsonify(result)
+
+
+@bp.route("/api/kernel/workspaces/<name>/plot-colorfill")
+def kernel_plot_colorfill(name):
+    """API: Extract 2D data for colorfill plot."""
+    kernel = get_kernel_manager()
+    result = kernel.plot_colorfill(name)
+    if result is None:
+        return jsonify({"success": False, "error": "No response from kernel"}), 500
+    return jsonify(result)
+
+
+@bp.route("/api/kernel/workspaces/<name>/data")
+def kernel_show_data(name):
+    """API: Get paginated table data from a workspace.
+
+    Query params:
+        start: starting spectrum index (default: 0)
+        count: number of spectra per page (default: 20)
+        start_bin: starting bin index (default: 0)
+        num_bins: number of bins per page (default: 50)
+    """
+    start = request.args.get("start", 0, type=int)
+    count = request.args.get("count", 20, type=int)
+    start_bin = request.args.get("start_bin", 0, type=int)
+    num_bins = request.args.get("num_bins", 50, type=int)
+
+    kernel = get_kernel_manager()
+    result = kernel.show_data(
+        name, start_spec=start, num_spec=count,
+        start_bin=start_bin, num_bins=num_bins,
+    )
+    if result is None:
+        return jsonify({"success": False, "error": "No response from kernel"}), 500
+    return jsonify(result)
+
+
+@bp.route("/api/kernel/workspaces/<name>/logs")
+def kernel_show_logs(name):
+    """API: Get sample logs from a workspace."""
+    kernel = get_kernel_manager()
+    result = kernel.show_logs(name)
+    if result is None:
+        return jsonify({"success": False, "error": "No response from kernel"}), 500
+    return jsonify(result)
+
+
+@bp.route("/api/kernel/workspaces/<name>/logs/<log_name>/series")
+def kernel_log_series(name, log_name):
+    """API: Get time-series data for a specific sample log."""
+    kernel = get_kernel_manager()
+    result = kernel.log_series(name, log_name)
+    if result is None:
+        return jsonify({"success": False, "error": "No response from kernel"}), 500
+    return jsonify(result)
+
+
+@bp.route("/api/kernel/workspaces/<name>/save", methods=["POST"])
+def kernel_save_workspace(name):
+    """API: Save workspace to a NeXus file in the IPTS shared folder."""
+    data = request.get_json() or {}
+    filename = data.get("filename", "").strip()
+
+    config = NotebookConfig.get_config()
+    if not config.ipts:
+        return jsonify({"success": False, "error": "No IPTS configured"}), 400
+
+    instrument = current_app.config["INSTRUMENT"]
+    save_dir = os.path.join(instrument.ipts_path(config.ipts), "shared", "neutronote")
+    os.makedirs(save_dir, exist_ok=True)
+
+    if not filename:
+        filename = f"{name}.nxs"
+    if not filename.endswith(".nxs"):
+        filename += ".nxs"
+
+    filepath = os.path.join(save_dir, filename)
+
+    kernel = get_kernel_manager()
+    result = kernel.save_workspace(name, filepath)
+    if result is None:
+        return jsonify({"success": False, "error": "No response from kernel"}), 500
+    return jsonify(result)
+
+
 @bp.route("/api/create/code", methods=["POST"])
 def api_create_code():
     """
@@ -577,7 +793,7 @@ def api_create_code():
     entry = Entry(type=Entry.TYPE_CODE, title=None, body=body)
     db.session.add(entry)
     _attach_tags(entry, _parse_json_tags(data))
-    db.session.commit()
+    _safe_commit()
 
     return jsonify({"success": True, "entry_id": entry.id})
 
@@ -671,7 +887,7 @@ def api_create_data():
 
     db.session.add(entry)
     _attach_tags(entry, _parse_json_tags(data))
-    db.session.commit()
+    _safe_commit()
 
     run_desc = str(run_numbers[0]) if len(run_numbers) == 1 else f"{len(run_numbers)} runs"
     return jsonify(
@@ -707,7 +923,7 @@ def edit(entry_id):
             entry.title = title
             entry.body = body
             entry.mark_edited()
-            db.session.commit()
+            _safe_commit()
 
         return redirect(url_for("entries.index"))
 
@@ -1241,7 +1457,7 @@ def create_pvlog():
     )
     db.session.add(entry)
     _attach_tags(entry, _parse_json_tags(data))
-    db.session.commit()
+    _safe_commit()
 
     return jsonify({"success": True, "entry_id": entry.id})
 
@@ -1295,7 +1511,7 @@ def add_tag_to_entry(entry_id):
     if tag not in entry.tags.all():
         entry.tags.append(tag)
 
-    db.session.commit()
+    _safe_commit()
     return jsonify({"id": tag.id, "name": tag.name})
 
 
@@ -1318,7 +1534,7 @@ def remove_tag_from_entry(entry_id, tag_id):
     if tag.entries.count() == 0:
         db.session.delete(tag)
 
-    db.session.commit()
+    _safe_commit()
     return jsonify({"success": True})
 
 
